@@ -21,20 +21,46 @@ const setLocal = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+// Timeout helper to ensure Firestore calls never hang indefinitely
+const TIMEOUT_MS = 3500; // 3.5 seconds
+
+const withTimeout = <T>(promise: Promise<T>, fallbackValue: T): Promise<T> => {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn(`Firestore operation timed out after ${TIMEOUT_MS}ms. Falling back to local cache.`);
+      resolve(fallbackValue);
+    }, TIMEOUT_MS);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        console.warn(`Firestore operation failed. Falling back to cache. Error:`, err);
+        resolve(fallbackValue);
+      });
+  });
+};
+
 // ----------------------------------------------------
 // 1. User Profile Services
 // ----------------------------------------------------
 export const getUserProfile = async (uid: string, defaultName?: string, defaultEmail?: string): Promise<UserProfile> => {
+  const cached = getLocal<UserProfile>(`questfit_profile_${uid}`);
+
   if (isFirebaseEnabled && db) {
     const docRef = doc(db, 'users', uid);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      return snap.data() as UserProfile;
+    const snap = await withTimeout(getDoc(docRef), null);
+    if (snap && snap.exists()) {
+      const profile = snap.data() as UserProfile;
+      setLocal(`questfit_profile_${uid}`, profile);
+      return profile;
     }
-  } else {
-    const profile = getLocal<UserProfile>(`questfit_profile_${uid}`);
-    if (profile) return profile;
   }
+
+  if (cached) return cached;
 
   // Create default profile if not exists
   const defaultProfile: UserProfile = {
@@ -54,10 +80,9 @@ export const getUserProfile = async (uid: string, defaultName?: string, defaultE
 };
 
 export const saveUserProfile = async (uid: string, profile: UserProfile): Promise<void> => {
+  setLocal(`questfit_profile_${uid}`, profile);
   if (isFirebaseEnabled && db) {
     await setDoc(doc(db, 'users', uid), profile);
-  } else {
-    setLocal(`questfit_profile_${uid}`, profile);
   }
 };
 
@@ -65,16 +90,19 @@ export const saveUserProfile = async (uid: string, profile: UserProfile): Promis
 // 2. User Memory Services (AI structured data)
 // ----------------------------------------------------
 export const getUserMemory = async (uid: string): Promise<UserMemory> => {
+  const cached = getLocal<UserMemory>(`questfit_memory_${uid}`);
+
   if (isFirebaseEnabled && db) {
     const docRef = doc(db, 'memory', uid);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      return snap.data() as UserMemory;
+    const snap = await withTimeout(getDoc(docRef), null);
+    if (snap && snap.exists()) {
+      const memory = snap.data() as UserMemory;
+      setLocal(`questfit_memory_${uid}`, memory);
+      return memory;
     }
-  } else {
-    const memory = getLocal<UserMemory>(`questfit_memory_${uid}`);
-    if (memory) return memory;
   }
+
+  if (cached) return cached;
 
   // Create empty default memory structure
   const defaultMemory: UserMemory = {
@@ -89,10 +117,9 @@ export const getUserMemory = async (uid: string): Promise<UserMemory> => {
 };
 
 export const saveUserMemory = async (uid: string, memory: UserMemory): Promise<void> => {
+  setLocal(`questfit_memory_${uid}`, memory);
   if (isFirebaseEnabled && db) {
     await setDoc(doc(db, 'memory', uid), memory);
-  } else {
-    setLocal(`questfit_memory_${uid}`, memory);
   }
 };
 
@@ -101,24 +128,27 @@ export const saveUserMemory = async (uid: string, memory: UserMemory): Promise<v
 // ----------------------------------------------------
 export const getQuests = async (uid: string): Promise<Quest[]> => {
   const todayStr = new Date().toISOString().split('T')[0];
+  const cached = getLocal<Quest[]>(`questfit_quests_${uid}`);
+  
+  // Resolve memory locally to avoid nested Firestore hangs
   const memory = await getUserMemory(uid);
   const weight = memory.goals?.currentWeightKg || memory.goals?.targetWeightKg || 70;
   
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'quests');
-    const snap = await getDocs(colRef);
-    const quests: Quest[] = [];
-    snap.forEach(doc => {
-      quests.push(doc.data() as Quest);
-    });
-    if (quests.length > 0) {
+    const snap = await withTimeout(getDocs(colRef), null);
+    if (snap && !snap.empty) {
+      const quests: Quest[] = [];
+      snap.forEach(doc => {
+        quests.push(doc.data() as Quest);
+      });
+      setLocal(`questfit_quests_${uid}`, quests);
       return checkAndRefreshDailyQuests(uid, quests, todayStr, weight);
     }
-  } else {
-    const quests = getLocal<Quest[]>(`questfit_quests_${uid}`);
-    if (quests && quests.length > 0) {
-      return checkAndRefreshDailyQuests(uid, quests, todayStr, weight);
-    }
+  }
+
+  if (cached && cached.length > 0) {
+    return checkAndRefreshDailyQuests(uid, cached, todayStr, weight);
   }
 
   // Default quests setup if empty
@@ -142,21 +172,22 @@ const checkAndRefreshDailyQuests = async (uid: string, quests: Quest[], todayStr
 };
 
 export const saveQuest = async (uid: string, quest: Quest): Promise<void> => {
+  const quests = getLocal<Quest[]>(`questfit_quests_${uid}`) || [];
+  const index = quests.findIndex(q => q.id === quest.id);
+  if (index !== -1) {
+    quests[index] = quest;
+  } else {
+    quests.push(quest);
+  }
+  setLocal(`questfit_quests_${uid}`, quests);
+
   if (isFirebaseEnabled && db) {
     await setDoc(doc(db, 'users', uid, 'quests', quest.id), quest);
-  } else {
-    const quests = await getQuests(uid);
-    const index = quests.findIndex(q => q.id === quest.id);
-    if (index !== -1) {
-      quests[index] = quest;
-    } else {
-      quests.push(quest);
-    }
-    setLocal(`questfit_quests_${uid}`, quests);
   }
 };
 
 export const saveAllQuests = async (uid: string, quests: Quest[]): Promise<void> => {
+  setLocal(`questfit_quests_${uid}`, quests);
   if (isFirebaseEnabled && db) {
     const batch = writeBatch(db);
     quests.forEach(q => {
@@ -164,8 +195,6 @@ export const saveAllQuests = async (uid: string, quests: Quest[]): Promise<void>
       batch.set(docRef, q);
     });
     await batch.commit();
-  } else {
-    setLocal(`questfit_quests_${uid}`, quests);
   }
 };
 
@@ -173,20 +202,24 @@ export const saveAllQuests = async (uid: string, quests: Quest[]): Promise<void>
 // 4. Progress Logs Services (Weights, Habits tracker)
 // ----------------------------------------------------
 export const getProgressLogs = async (uid: string): Promise<ProgressLog[]> => {
+  const cached = getLocal<ProgressLog[]>(`questfit_progress_${uid}`) || [];
+
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'progress_logs');
     const q = query(colRef, orderBy('date', 'asc'));
-    const snap = await getDocs(q);
-    const logs: ProgressLog[] = [];
-    snap.forEach(doc => {
-      logs.push(doc.data() as ProgressLog);
-    });
-    return logs;
-  } else {
-    const logs = getLocal<ProgressLog[]>(`questfit_progress_${uid}`) || [];
-    // Sort ascending by date string
-    return logs.sort((a, b) => a.date.localeCompare(b.date));
+    const snap = await withTimeout(getDocs(q), null);
+    if (snap && !snap.empty) {
+      const logs: ProgressLog[] = [];
+      snap.forEach(doc => {
+        logs.push(doc.data() as ProgressLog);
+      });
+      const sortedLogs = logs.sort((a, b) => a.date.localeCompare(b.date));
+      setLocal(`questfit_progress_${uid}`, sortedLogs);
+      return sortedLogs;
+    }
   }
+
+  return cached.sort((a, b) => a.date.localeCompare(b.date));
 };
 
 export const getProgressLogForDate = async (uid: string, dateStr: string): Promise<ProgressLog> => {
@@ -206,17 +239,17 @@ export const getProgressLogForDate = async (uid: string, dateStr: string): Promi
 };
 
 export const saveProgressLog = async (uid: string, log: ProgressLog): Promise<void> => {
+  const logs = await getProgressLogs(uid);
+  const index = logs.findIndex(l => l.id === log.id);
+  if (index !== -1) {
+    logs[index] = log;
+  } else {
+    logs.push(log);
+  }
+  setLocal(`questfit_progress_${uid}`, logs);
+
   if (isFirebaseEnabled && db) {
     await setDoc(doc(db, 'users', uid, 'progress_logs', log.id), log);
-  } else {
-    const logs = await getProgressLogs(uid);
-    const index = logs.findIndex(l => l.id === log.id);
-    if (index !== -1) {
-      logs[index] = log;
-    } else {
-      logs.push(log);
-    }
-    setLocal(`questfit_progress_${uid}`, logs);
   }
 };
 
@@ -224,18 +257,22 @@ export const saveProgressLog = async (uid: string, log: ProgressLog): Promise<vo
 // 5. Achievements Board
 // ----------------------------------------------------
 export const getAchievements = async (uid: string): Promise<Achievement[]> => {
+  const cached = getLocal<Achievement[]>(`questfit_achievements_${uid}`);
+
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'achievements');
-    const snap = await getDocs(colRef);
-    const achs: Achievement[] = [];
-    snap.forEach(doc => {
-      achs.push(doc.data() as Achievement);
-    });
-    if (achs.length > 0) return achs;
-  } else {
-    const achs = getLocal<Achievement[]>(`questfit_achievements_${uid}`);
-    if (achs) return achs;
+    const snap = await withTimeout(getDocs(colRef), null);
+    if (snap && !snap.empty) {
+      const achs: Achievement[] = [];
+      snap.forEach(doc => {
+        achs.push(doc.data() as Achievement);
+      });
+      setLocal(`questfit_achievements_${uid}`, achs);
+      return achs;
+    }
   }
+
+  if (cached) return cached;
 
   const defaults = getDefaultAchievements();
   await saveAllAchievements(uid, defaults);
@@ -243,21 +280,22 @@ export const getAchievements = async (uid: string): Promise<Achievement[]> => {
 };
 
 export const saveAchievement = async (uid: string, ach: Achievement): Promise<void> => {
+  const achs = await getAchievements(uid);
+  const index = achs.findIndex(a => a.id === ach.id);
+  if (index !== -1) {
+    achs[index] = ach;
+  } else {
+    achs.push(ach);
+  }
+  setLocal(`questfit_achievements_${uid}`, achs);
+
   if (isFirebaseEnabled && db) {
     await setDoc(doc(db, 'users', uid, 'achievements', ach.id), ach);
-  } else {
-    const achs = await getAchievements(uid);
-    const index = achs.findIndex(a => a.id === ach.id);
-    if (index !== -1) {
-      achs[index] = ach;
-    } else {
-      achs.push(ach);
-    }
-    setLocal(`questfit_achievements_${uid}`, achs);
   }
 };
 
 export const saveAllAchievements = async (uid: string, achs: Achievement[]): Promise<void> => {
+  setLocal(`questfit_achievements_${uid}`, achs);
   if (isFirebaseEnabled && db) {
     const batch = writeBatch(db);
     achs.forEach(a => {
@@ -265,8 +303,6 @@ export const saveAllAchievements = async (uid: string, achs: Achievement[]): Pro
       batch.set(docRef, a);
     });
     await batch.commit();
-  } else {
-    setLocal(`questfit_achievements_${uid}`, achs);
   }
 };
 
@@ -274,31 +310,37 @@ export const saveAllAchievements = async (uid: string, achs: Achievement[]): Pro
 // 6. Chat History (AICoach chat)
 // ----------------------------------------------------
 export const getChatHistory = async (uid: string): Promise<ChatMessage[]> => {
+  const cached = getLocal<ChatMessage[]>(`questfit_chat_${uid}`) || [];
+
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'chat_history');
     const q = query(colRef, orderBy('timestamp', 'asc'));
-    const snap = await getDocs(q);
-    const msgs: ChatMessage[] = [];
-    snap.forEach(doc => {
-      msgs.push(doc.data() as ChatMessage);
-    });
-    return msgs;
-  } else {
-    return getLocal<ChatMessage[]>(`questfit_chat_${uid}`) || [];
+    const snap = await withTimeout(getDocs(q), null);
+    if (snap && !snap.empty) {
+      const msgs: ChatMessage[] = [];
+      snap.forEach(doc => {
+        msgs.push(doc.data() as ChatMessage);
+      });
+      setLocal(`questfit_chat_${uid}`, msgs);
+      return msgs;
+    }
   }
+
+  return cached;
 };
 
 export const addChatMessage = async (uid: string, msg: ChatMessage): Promise<void> => {
+  const history = await getChatHistory(uid);
+  history.push(msg);
+  setLocal(`questfit_chat_${uid}`, history);
+
   if (isFirebaseEnabled && db) {
     await setDoc(doc(db, 'users', uid, 'chat_history', msg.id), msg);
-  } else {
-    const history = await getChatHistory(uid);
-    history.push(msg);
-    setLocal(`questfit_chat_${uid}`, history);
   }
 };
 
 export const clearChatHistory = async (uid: string): Promise<void> => {
+  localStorage.removeItem(`questfit_chat_${uid}`);
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'chat_history');
     const snap = await getDocs(colRef);
@@ -307,8 +349,6 @@ export const clearChatHistory = async (uid: string): Promise<void> => {
       batch.delete(doc.ref);
     });
     await batch.commit();
-  } else {
-    localStorage.removeItem(`questfit_chat_${uid}`);
   }
 };
 
