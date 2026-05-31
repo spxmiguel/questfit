@@ -155,10 +155,15 @@ export const registerWithEmail = async (email: string, pass: string, name: strin
 export const loginWithGoogle = (): Promise<UserSession> => {
   if (isFirebaseEnabled && auth) {
     const provider = new GoogleAuthProvider();
-    console.log('Redirecting to Google synchronously...');
-    signInWithRedirect(auth, provider);
-    // Return pending promise because page will reload shortly
-    return new Promise(() => {});
+    return signInWithPopup(auth, provider).then(cred => {
+      const session: UserSession = {
+        uid: cred.user.uid,
+        email: cred.user.email || '',
+        displayName: cred.user.displayName || 'Guerreiro do Fogo'
+      };
+      notifyListeners(session);
+      return session;
+    });
   } else {
     // Mock Google login
     const session: UserSession = {
