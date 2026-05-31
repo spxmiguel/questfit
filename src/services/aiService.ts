@@ -2,13 +2,22 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { UserMemory, ChatMessage } from '../types';
 
 const GEMINI_KEY_STORAGE = 'questfit_gemini_api_key';
+const GROQ_KEY_STORAGE = 'questfit_groq_api_key';
 
 export const getStoredGeminiKey = (): string => {
-  return localStorage.getItem(GEMINI_KEY_STORAGE) || '';
+  return localStorage.getItem(GEMINI_KEY_STORAGE) || import.meta.env.VITE_GEMINI_API_KEY || '';
 };
 
 export const setStoredGeminiKey = (key: string): void => {
   localStorage.setItem(GEMINI_KEY_STORAGE, key);
+};
+
+export const getStoredGroqKey = (): string => {
+  return localStorage.getItem(GROQ_KEY_STORAGE) || import.meta.env.VITE_GROQ_API_KEY || '';
+};
+
+export const setStoredGroqKey = (key: string): void => {
+  localStorage.setItem(GROQ_KEY_STORAGE, key);
 };
 
 // System Prompt for AI Coach
@@ -134,54 +143,107 @@ const getMockResponse = (userMessage: string, memory: UserMemory): { text: strin
   return { text, memoryUpdate: null };
 };
 
-// Send message to Gemini or fall back to Mock
+// Groq API client integration
+const sendGroqChatMessage = async (
+  message: string,
+  history: ChatMessage[],
+  memory: UserMemory,
+  apiKey: string
+): Promise<{ text: string; memoryUpdate: Partial<UserMemory> | null }> => {
+  const systemPrompt = getSystemPrompt(memory);
+  
+  // Format history for Groq completions API
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    ...history.map(msg => ({
+      role: msg.sender === 'user' ? 'user' : 'assistant',
+      content: msg.text
+    })),
+    { role: 'user', content: message }
+  ];
+
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages,
+        temperature: 0.7,
+        max_tokens: 800
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Erro API Groq: ${response.status} - ${errText}`);
+    }
+
+    const data = await response.json();
+    const aiText = data.choices[0].message.content || '';
+
+    return extractMemoryUpdate(aiText);
+  } catch (error: any) {
+    console.error('Groq API call failed:', error);
+    throw new Error(error.message || 'Falha de conexão com a API do Groq.');
+  }
+};
+
+// Send message to Groq, Gemini or fall back to Mock
 export const sendChatMessageToCoach = async (
   message: string,
   history: ChatMessage[],
   memory: UserMemory
 ): Promise<{ text: string; memoryUpdate: Partial<UserMemory> | null }> => {
-  const apiKey = getStoredGeminiKey();
+  const groqKey = getStoredGroqKey();
+  const geminiKey = getStoredGeminiKey();
 
-  if (!apiKey) {
-    // Return mock response immediately
-    const mock = getMockResponse(message, memory);
-    const extracted = extractMemoryUpdate(mock.text);
-    return {
-      text: extracted.text,
-      memoryUpdate: extracted.memoryUpdate
-    };
+  // 1. If Groq Key is available, prioritize Groq
+  if (groqKey) {
+    return sendGroqChatMessage(message, history, memory, groqKey);
   }
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    // Use gemini-2.5-flash as the current fast standard
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: getSystemPrompt(memory),
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 800
-      }
-    });
+  // 2. If Gemini Key is available, fallback to Gemini
+  if (geminiKey) {
+    try {
+      const genAI = new GoogleGenerativeAI(geminiKey);
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        systemInstruction: getSystemPrompt(memory),
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 800
+        }
+      });
 
-    // Format chat history for Gemini API API
-    const contents = history.map(msg => ({
-      role: msg.sender === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.text }]
-    }));
+      const contents = history.map(msg => ({
+        role: msg.sender === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.text }]
+      }));
 
-    // Append new message
-    contents.push({
-      role: 'user',
-      parts: [{ text: message }]
-    });
+      contents.push({
+        role: 'user',
+        parts: [{ text: message }]
+      });
 
-    const result = await model.generateContent({ contents });
-    const aiText = result.response.text();
+      const result = await model.generateContent({ contents });
+      const aiText = result.response.text();
 
-    return extractMemoryUpdate(aiText);
-  } catch (error: any) {
-    console.error('Gemini API call failed:', error);
-    throw new Error(error.message || 'Falha na conexão com o servidor da Gemini. Verifique sua chave de API nas configurações.');
+      return extractMemoryUpdate(aiText);
+    } catch (error: any) {
+      console.error('Gemini API call failed:', error);
+      throw new Error(error.message || 'Falha na conexão com o servidor da Gemini. Verifique sua chave de API nas configurações.');
+    }
   }
+
+  // 3. Fallback to mock response
+  const mock = getMockResponse(message, memory);
+  const extracted = extractMemoryUpdate(mock.text);
+  return {
+    text: extracted.text,
+    memoryUpdate: extracted.memoryUpdate
+  };
 };
