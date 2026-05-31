@@ -152,26 +152,13 @@ export const registerWithEmail = async (email: string, pass: string, name: strin
   }
 };
 
-export const loginWithGoogle = async (): Promise<UserSession> => {
+export const loginWithGoogle = (): Promise<UserSession> => {
   if (isFirebaseEnabled && auth) {
     const provider = new GoogleAuthProvider();
-    try {
-      const cred = await signInWithPopup(auth, provider);
-      const session: UserSession = {
-        uid: cred.user.uid,
-        email: cred.user.email || '',
-        displayName: cred.user.displayName || 'Guerreiro do Fogo'
-      };
-      notifyListeners(session);
-      return session;
-    } catch (err: any) {
-      if (err.code === 'auth/popup-blocked') {
-        console.warn('Popup blocked by browser. Retrying with redirect...');
-        await signInWithRedirect(auth, provider);
-        return new Promise(() => {});
-      }
-      throw err;
-    }
+    console.log('Redirecting to Google synchronously...');
+    signInWithRedirect(auth, provider);
+    // Return pending promise because page will reload shortly
+    return new Promise(() => {});
   } else {
     // Mock Google login
     const session: UserSession = {
@@ -181,7 +168,7 @@ export const loginWithGoogle = async (): Promise<UserSession> => {
     };
     localStorage.setItem(MOCK_USER_KEY, JSON.stringify(session));
     notifyListeners(session);
-    return session;
+    return Promise.resolve(session);
   }
 };
 
