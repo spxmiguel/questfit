@@ -50,13 +50,22 @@ export default function Auth({ onSuccess }: AuthProps) {
     setError('');
     setLoading(true);
 
-    loginPromise
+    // Timeout of 12 seconds to prevent endless spinning on Safari/iOS if Firebase handshake hangs
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('TIMEOUT_GOOGLE'));
+      }, 12000);
+    });
+
+    Promise.race([loginPromise, timeoutPromise])
       .then(() => {
         onSuccess();
       })
       .catch((err: any) => {
         console.error(err);
-        if (err.code === 'auth/popup-blocked') {
+        if (err.message === 'TIMEOUT_GOOGLE') {
+          setError('⚠️ O Google Login travou. Isso é um bloqueio de privacidade nativo do Safari (impedindo comunicação cross-origin). Para corrigir, desative a opção "Impedir Rastreamento entre Sites" nos Ajustes do seu Safari, use o navegador Chrome, ou entre com E-mail/Senha ou Convidado.');
+        } else if (err.code === 'auth/popup-blocked') {
           setError('⚠️ Pop-up Bloqueado! O Safari bloqueou a janela do Google. Clique no ícone de pop-up bloqueado na barra de endereços (ao lado do endereço do site) e selecione "Sempre Permitir pop-ups de spxmiguel.github.io" para conseguir fazer login.');
         } else if (err.code === 'auth/popup-closed-by-user') {
           setError('O login foi cancelado ou a janela travou em branco. Se travou em branco, certifique-se de adicionar "spxmiguel.github.io" em "Domínios Autorizados" no Console do Firebase (Authentication → Configurações → Domínios Autorizados).');
