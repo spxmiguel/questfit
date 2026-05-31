@@ -135,8 +135,12 @@ function App() {
     }
   };
 
-  const handleWeightLogged = (updatedProfile: UserProfile, updatedMemory: UserMemory, newlyUnlockedAchs: Achievement[]) => {
+  const handleWeightLogged = async (updatedProfile: UserProfile, updatedMemory: UserMemory, newlyUnlockedAchs: Achievement[]) => {
     setUserMemory(updatedMemory);
+    
+    // Refresh quests list because water target updates dynamically with weight
+    const activeQuests = await getQuests(session!.uid);
+    setQuests(activeQuests);
     
     const levelChanged = userProfile && updatedProfile.level > userProfile.level;
     setUserProfile(updatedProfile);

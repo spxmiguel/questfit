@@ -101,6 +101,8 @@ export const saveUserMemory = async (uid: string, memory: UserMemory): Promise<v
 // ----------------------------------------------------
 export const getQuests = async (uid: string): Promise<Quest[]> => {
   const todayStr = new Date().toISOString().split('T')[0];
+  const memory = await getUserMemory(uid);
+  const weight = memory.goals?.currentWeightKg || memory.goals?.targetWeightKg || 70;
   
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'quests');
@@ -110,29 +112,29 @@ export const getQuests = async (uid: string): Promise<Quest[]> => {
       quests.push(doc.data() as Quest);
     });
     if (quests.length > 0) {
-      return checkAndRefreshDailyQuests(uid, quests, todayStr);
+      return checkAndRefreshDailyQuests(uid, quests, todayStr, weight);
     }
   } else {
     const quests = getLocal<Quest[]>(`questfit_quests_${uid}`);
     if (quests && quests.length > 0) {
-      return checkAndRefreshDailyQuests(uid, quests, todayStr);
+      return checkAndRefreshDailyQuests(uid, quests, todayStr, weight);
     }
   }
 
   // Default quests setup if empty
-  const defaultQuests = getDefaultQuests();
+  const defaultQuests = getDefaultQuests(weight);
   await saveAllQuests(uid, defaultQuests);
   return defaultQuests;
 };
 
-const checkAndRefreshDailyQuests = async (uid: string, quests: Quest[], todayStr: string): Promise<Quest[]> => {
+const checkAndRefreshDailyQuests = async (uid: string, quests: Quest[], todayStr: string, weightKg?: number): Promise<Quest[]> => {
   // Check if daily quests are from a previous date
   const hasOldDailies = quests.some(q => q.category === 'daily' && !q.id.endsWith(todayStr));
   
   if (hasOldDailies) {
     // Keep weekly and special quests, regenerate daily quests for today
     const preservedQuests = quests.filter(q => q.category !== 'daily');
-    const freshDailies = getDefaultQuests().filter(q => q.category === 'daily');
+    const freshDailies = getDefaultQuests(weightKg).filter(q => q.category === 'daily');
     const newQuestList = [...freshDailies, ...preservedQuests];
     await saveAllQuests(uid, newQuestList);
     return newQuestList;

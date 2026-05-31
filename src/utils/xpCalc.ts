@@ -30,19 +30,22 @@ export const checkLevelUp = (level: number, xp: number): { leveledUp: boolean; n
   return { leveledUp, newLevel, remainingXp, xpNeeded };
 };
 
-export const getDefaultQuests = (): Quest[] => {
+export const getDefaultQuests = (weightKg?: number): Quest[] => {
   const todayStr = new Date().toISOString().split('T')[0];
+  const waterTarget = weightKg ? Math.round(weightKg * 35) : 2000;
+  const finalWaterTarget = Math.max(1500, Math.min(waterTarget, 4500));
+  
   return [
     // Daily Quests
     {
       id: `daily-water-${todayStr}`,
-      title: 'Beber 2L de Água',
+      title: `Beber ${(finalWaterTarget / 1000).toFixed(1).replace('.0', '')}L de Água`,
       category: 'daily',
       type: 'water',
       xpReward: 50,
       completed: false,
       progress: 0,
-      target: 2000,
+      target: finalWaterTarget,
       unit: 'ml'
     },
     {

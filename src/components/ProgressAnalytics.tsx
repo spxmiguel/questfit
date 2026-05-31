@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, UserMemory, ProgressLog } from '../types';
-import { getProgressLogs, saveProgressLog, getProgressLogForDate, saveUserMemory } from '../services/dbService';
+import { getProgressLogs, saveProgressLog, getProgressLogForDate, saveUserMemory, getQuests, saveQuest } from '../services/dbService';
 import { awardXp } from '../services/rpgService';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar } from 'recharts';
 import { Scale, Calendar, ChevronRight, Activity, TrendingDown, Target, HelpCircle } from 'lucide-react';
@@ -47,6 +47,21 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
         lastUpdated: new Date().toISOString()
       };
       await saveUserMemory(userProfile.uid, updatedMemory);
+
+      // Recalculate water target (35ml/kg)
+      const newWaterTarget = Math.max(1500, Math.min(Math.round(weightVal * 35), 4500));
+      
+      // Update active water quest target if it exists and is not completed
+      const activeQuests = await getQuests(userProfile.uid);
+      const waterQuestIdx = activeQuests.findIndex(q => q.type === 'water' && q.category === 'daily');
+      if (waterQuestIdx !== -1) {
+        const waterQuest = activeQuests[waterQuestIdx];
+        if (!waterQuest.completed) {
+          waterQuest.target = newWaterTarget;
+          waterQuest.title = `Beber ${(newWaterTarget / 1000).toFixed(1).replace('.0', '')}L de Água`;
+          await saveQuest(userProfile.uid, waterQuest);
+        }
+      }
 
       // Award XP for logging weight (+50 XP)
       const res = await awardXp(userProfile.uid, userProfile, 50, 'weight');
