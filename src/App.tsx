@@ -4,7 +4,8 @@ import {
   logoutUser, 
   UserSession,
   isEmailSignInLink,
-  handleIncomingEmailLink
+  handleIncomingEmailLink,
+  getCurrentUser
 } from './services/authService';
 import { 
   getUserProfile, 
@@ -32,8 +33,8 @@ import NutritionSystem from './components/NutritionSystem';
 import { Dumbbell } from 'lucide-react';
 
 function App() {
-  const [session, setSession] = useState<UserSession | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [session, setSession] = useState<UserSession | null>(() => getCurrentUser());
+  const [authLoading, setAuthLoading] = useState(() => !getCurrentUser());
   const [dataLoading, setDataLoading] = useState(false);
   const [emailLinkLoggingIn, setEmailLinkLoggingIn] = useState(false);
   const [emailLinkError, setEmailLinkError] = useState<string | null>(null);

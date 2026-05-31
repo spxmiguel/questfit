@@ -31,14 +31,26 @@ let currentUser: UserSession | null = null;
 // Helper to notify all listeners of auth changes
 const notifyListeners = (user: UserSession | null) => {
   currentUser = user;
+  if (user) {
+    localStorage.setItem('questfit_user_session', JSON.stringify(user));
+  } else {
+    localStorage.removeItem('questfit_user_session');
+  }
   listeners.forEach(cb => cb(user));
 };
 
-// Initialize current user session from LocalStorage if Mock Mode
-if (!isFirebaseEnabled) {
+// Initialize current user session from LocalStorage cache (works for both Firebase and Mock)
+const cachedSession = localStorage.getItem('questfit_user_session');
+if (cachedSession) {
+  try {
+    currentUser = JSON.parse(cachedSession);
+  } catch (e) {}
+} else if (!isFirebaseEnabled) {
   const cachedUser = localStorage.getItem(MOCK_USER_KEY);
   if (cachedUser) {
-    currentUser = JSON.parse(cachedUser);
+    try {
+      currentUser = JSON.parse(cachedUser);
+    } catch (e) {}
   }
 }
 
@@ -143,24 +155,10 @@ export const registerWithEmail = async (email: string, pass: string, name: strin
 export const loginWithGoogle = async (): Promise<UserSession> => {
   if (isFirebaseEnabled && auth) {
     const provider = new GoogleAuthProvider();
-    try {
-      const cred = await signInWithPopup(auth, provider);
-      const session: UserSession = {
-        uid: cred.user.uid,
-        email: cred.user.email || '',
-        displayName: cred.user.displayName || 'Guerreiro do Fogo'
-      };
-      notifyListeners(session);
-      return session;
-    } catch (err: any) {
-      if (err.code === 'auth/popup-blocked') {
-        console.warn('Popup blocked by browser. Retrying with redirect...');
-        await signInWithRedirect(auth, provider);
-        // Page will reload due to redirect; return a pending promise to prevent login form submission issues.
-        return new Promise(() => {});
-      }
-      throw err;
-    }
+    console.log('Initiating Google Login via Redirect to prevent blank popups and cookie blockers...');
+    await signInWithRedirect(auth, provider);
+    // Page will reload; return a pending promise to prevent login form submission issues.
+    return new Promise(() => {});
   } else {
     // Mock Google login
     const session: UserSession = {
