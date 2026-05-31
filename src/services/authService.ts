@@ -155,10 +155,23 @@ export const registerWithEmail = async (email: string, pass: string, name: strin
 export const loginWithGoogle = async (): Promise<UserSession> => {
   if (isFirebaseEnabled && auth) {
     const provider = new GoogleAuthProvider();
-    console.log('Initiating Google Login via Redirect to prevent blank popups and cookie blockers...');
-    await signInWithRedirect(auth, provider);
-    // Page will reload; return a pending promise to prevent login form submission issues.
-    return new Promise(() => {});
+    try {
+      const cred = await signInWithPopup(auth, provider);
+      const session: UserSession = {
+        uid: cred.user.uid,
+        email: cred.user.email || '',
+        displayName: cred.user.displayName || 'Guerreiro do Fogo'
+      };
+      notifyListeners(session);
+      return session;
+    } catch (err: any) {
+      if (err.code === 'auth/popup-blocked') {
+        console.warn('Popup blocked by browser. Retrying with redirect...');
+        await signInWithRedirect(auth, provider);
+        return new Promise(() => {});
+      }
+      throw err;
+    }
   } else {
     // Mock Google login
     const session: UserSession = {

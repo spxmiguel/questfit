@@ -43,18 +43,24 @@ export default function Auth({ onSuccess }: AuthProps) {
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = () => {
     setError('');
     setLoading(true);
-    try {
-      await loginWithGoogle();
-      onSuccess();
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Erro ao entrar com o Google.');
-    } finally {
-      setLoading(false);
-    }
+    loginWithGoogle()
+      .then(() => {
+        onSuccess();
+      })
+      .catch((err: any) => {
+        console.error(err);
+        if (err.code === 'auth/popup-closed-by-user') {
+          setError('O login foi cancelado ou a janela travou em branco. Se travou em branco, certifique-se de adicionar "spxmiguel.github.io" em "Domínios Autorizados" no Console do Firebase (Authentication → Configurações → Domínios Autorizados).');
+        } else {
+          setError(err.message || 'Erro ao entrar com o Google.');
+        }
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   const handleGuestLogin = () => {
