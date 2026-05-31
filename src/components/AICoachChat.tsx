@@ -152,6 +152,44 @@ export default function AICoachChat({ userProfile, userMemory, quests, onMemoryU
               const res = await awardXp(userProfile.uid, finalProfile, waterQuest.xpReward, 'quest');
               finalProfile = res.profile;
               newlyUnlockedAchs = [...newlyUnlockedAchs, ...res.unlockedAchievements];
+
+              // Update weekly water consistency quest
+              const weeklyAdherenceIdx = finalQuests.findIndex(q => q.id === 'weekly-adherence');
+              if (weeklyAdherenceIdx !== -1) {
+                const weeklyAdherence = finalQuests[weeklyAdherenceIdx];
+                if (!weeklyAdherence.completed) {
+                  const newWeeklyProgress = weeklyAdherence.progress + 1;
+                  const weeklyCompleted = newWeeklyProgress >= weeklyAdherence.target;
+                  const updatedWeekly = {
+                    ...weeklyAdherence,
+                    progress: newWeeklyProgress,
+                    completed: weeklyCompleted,
+                    completedDate: weeklyCompleted ? new Date().toISOString() : undefined
+                  };
+                  await saveQuest(userProfile.uid, updatedWeekly);
+                  finalQuests[weeklyAdherenceIdx] = updatedWeekly;
+
+                  if (weeklyCompleted) {
+                    const resWeekly = await awardXp(userProfile.uid, finalProfile, weeklyAdherence.xpReward, 'quest');
+                    finalProfile = resWeekly.profile;
+                    newlyUnlockedAchs = [...newlyUnlockedAchs, ...resWeekly.unlockedAchievements];
+                  }
+                }
+              }
+            } else if (!isNowCompleted && wasCompleted) {
+              // Decrement if water drops below target
+              const weeklyAdherenceIdx = finalQuests.findIndex(q => q.id === 'weekly-adherence');
+              if (weeklyAdherenceIdx !== -1) {
+                const weeklyAdherence = finalQuests[weeklyAdherenceIdx];
+                const updatedWeekly = {
+                  ...weeklyAdherence,
+                  progress: Math.max(0, weeklyAdherence.progress - 1),
+                  completed: false,
+                  completedDate: undefined
+                };
+                await saveQuest(userProfile.uid, updatedWeekly);
+                finalQuests[weeklyAdherenceIdx] = updatedWeekly;
+              }
             }
           }
         }

@@ -107,6 +107,53 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
         }
       }
 
+      // Update weekly water consistency quest based on completed daily water
+      let weeklyAdherence = updatedQuests.find(q => q.id === 'weekly-adherence');
+      let weeklyAdherenceCompletedNow = false;
+      if (quest.type === 'water' && quest.category === 'daily') {
+        if (isNowCompleted && !wasCompleted) {
+          if (weeklyAdherence && !weeklyAdherence.completed) {
+            const newWeeklyProgress = weeklyAdherence.progress + 1;
+            const weeklyCompleted = newWeeklyProgress >= weeklyAdherence.target;
+            weeklyAdherenceCompletedNow = weeklyCompleted;
+            
+            const updatedWeekly: Quest = {
+              ...weeklyAdherence,
+              progress: newWeeklyProgress,
+              completed: weeklyCompleted,
+              completedDate: weeklyCompleted ? new Date().toISOString() : undefined
+            };
+            
+            updatedQuests = updatedQuests.map(q => q.id === 'weekly-adherence' ? updatedWeekly : q);
+            weeklyAdherence = updatedWeekly;
+
+            if (weeklyCompleted) {
+              const updatedXp = finalProfile.xp + weeklyAdherence.xpReward;
+              const levelCheck = checkLevelUp(finalProfile.level, updatedXp);
+              finalProfile = {
+                ...finalProfile,
+                level: levelCheck.newLevel,
+                xp: levelCheck.remainingXp,
+                xpNeededForNextLevel: levelCheck.xpNeeded,
+                title: getTitleForLevel(levelCheck.newLevel)
+              };
+            }
+          }
+        } else if (!isNowCompleted && wasCompleted) {
+          if (weeklyAdherence) {
+            const newWeeklyProgress = Math.max(0, weeklyAdherence.progress - 1);
+            const updatedWeekly: Quest = {
+              ...weeklyAdherence,
+              progress: newWeeklyProgress,
+              completed: false,
+              completedDate: undefined
+            };
+            updatedQuests = updatedQuests.map(q => q.id === 'weekly-adherence' ? updatedWeekly : q);
+            weeklyAdherence = updatedWeekly;
+          }
+        }
+      }
+
       // Trigger UI callback IMMEDIATELY for responsive feeling
       onQuestUpdate(updatedQuests, finalProfile, []);
 
@@ -143,11 +190,20 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
             allUnlockedAchs = [...allUnlockedAchs, ...res.unlockedAchievements];
           }
 
-          // 4. Handle weekly quest save
+          // 4. Handle weekly quest saves
           if (quest.type === 'workout' && quest.category === 'daily' && isNowCompleted && !wasCompleted && weeklyWorkouts) {
             await saveQuest(userProfile.uid, weeklyWorkouts);
             if (weeklyCompletedNow) {
               const resWeekly = await awardXp(userProfile.uid, currentProfile, weeklyWorkouts.xpReward, 'quest');
+              currentProfile = resWeekly.profile;
+              allUnlockedAchs = [...allUnlockedAchs, ...resWeekly.unlockedAchievements];
+            }
+          }
+
+          if (quest.type === 'water' && quest.category === 'daily' && weeklyAdherence) {
+            await saveQuest(userProfile.uid, weeklyAdherence);
+            if (weeklyAdherenceCompletedNow) {
+              const resWeekly = await awardXp(userProfile.uid, currentProfile, weeklyAdherence.xpReward, 'quest');
               currentProfile = resWeekly.profile;
               allUnlockedAchs = [...allUnlockedAchs, ...resWeekly.unlockedAchievements];
             }
