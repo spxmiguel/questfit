@@ -873,7 +873,11 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
                       <p className="text-xs text-zinc-300 leading-relaxed">{meal.desc}</p>
                     ) : (
                       <div className="space-y-3 pt-1">
-                        <p className="text-[11px] text-zinc-400 italic">Atual: "{meal.desc}"</p>
+                        {/* Truncate to 2 lines — long customized descriptions caused the card to
+                            expand massively, pushing the Cancel/Confirm buttons off-screen */}
+                        <p className="text-[11px] text-zinc-400 italic line-clamp-2 overflow-hidden">
+                          Atual: "{meal.desc}"
+                        </p>
                         <div className="space-y-1">
                           <label className="text-[9px] font-bold text-zinc-500 uppercase">O que melhorar ou substituir?</label>
                           <textarea
@@ -885,9 +889,9 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
                             disabled={isRegenerating}
                           />
                         </div>
-                        
+
                         {regenerateError && (
-                          <div className="text-[10px] text-rose-455 font-medium">
+                          <div className="text-[10px] text-rose-400 font-medium">
                             {regenerateError}
                           </div>
                         )}
@@ -899,9 +903,11 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
                               setEditingMealIndex(null);
                               setCustomInstruction('');
                               setRegenerateError(null);
+                              // Reset regenerating flag so the user can start a new request
+                              // even if a previous one is still running in the background
+                              setRegeneratingIndex(null);
                             }}
-                            className="py-1.5 px-3 bg-zinc-955 hover:bg-zinc-900 border border-zinc-850 text-zinc-400 hover:text-white font-bold rounded-xl transition duration-150 cursor-pointer text-[10px]"
-                            disabled={isRegenerating}
+                            className="py-1.5 px-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white font-bold rounded-xl transition duration-150 cursor-pointer text-[10px]"
                           >
                             Cancelar
                           </button>
