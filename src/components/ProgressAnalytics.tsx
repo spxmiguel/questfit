@@ -3,6 +3,7 @@ import { UserProfile, UserMemory, ProgressLog } from '../types';
 import { getProgressLogs, saveProgressLog, getProgressLogForDate, saveUserMemory, getQuests, saveQuest } from '../services/dbService';
 import { awardXp } from '../services/rpgService';
 import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
+import { getLocalDateString } from '../utils/dateUtils';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar } from 'recharts';
 import { Scale, Calendar, ChevronRight, Activity, TrendingDown, Target, HelpCircle } from 'lucide-react';
 
@@ -17,7 +18,7 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
   const [weightInput, setWeightInput] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
 
   useEffect(() => {
     getProgressLogs(userProfile.uid).then(setLogs);

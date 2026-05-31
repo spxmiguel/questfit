@@ -3,6 +3,7 @@ import { ChatMessage, UserMemory, UserProfile, Quest, ProgressLog } from '../typ
 import { getChatHistory, addChatMessage, clearChatHistory, saveUserMemory, getProgressLogForDate, saveProgressLog, saveQuest } from '../services/dbService';
 import { sendChatMessageToCoach } from '../services/aiService';
 import { awardXp } from '../services/rpgService';
+import { getLocalDateString } from '../utils/dateUtils';
 import { MessageSquare, Send, BrainCircuit, RefreshCw, Sparkles, User, UserCheck, ShieldAlert, Heart, Scale, Dumbbell, Calendar } from 'lucide-react';
 
 interface AICoachChatProps {
@@ -52,7 +53,7 @@ export default function AICoachChat({ userProfile, userMemory, quests, onMemoryU
 
     try {
       // 1. Fetch latest today's log to supply to the prompt
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
       const todayLog = await getProgressLogForDate(userProfile.uid, todayStr);
 
       // 2. Send chat context to Gemini / Mock Coach

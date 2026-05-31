@@ -1,6 +1,7 @@
 import { UserProfile, Quest, Achievement, ProgressLog } from '../types';
 import { checkLevelUp, getTitleForLevel, getXpNeededForLevel } from '../utils/xpCalc';
 import { saveUserProfile, getAchievements, saveAllAchievements } from './dbService';
+import { getLocalDateString } from '../utils/dateUtils';
 
 export interface RpgUpdateResult {
   profile: UserProfile;
@@ -79,8 +80,8 @@ export const checkAndUpdateStreak = async (
   uid: string,
   profile: UserProfile
 ): Promise<UserProfile> => {
-  const todayStr = new Date().toISOString().split('T')[0];
-  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
+  const yesterdayStr = getLocalDateString(-1);
   
   let newStreak = profile.streak;
   

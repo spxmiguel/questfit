@@ -5,6 +5,7 @@ import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests } from '../services/dbService';
 import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey } from '../services/aiService';
 import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
+import { getLocalDateString } from '../utils/dateUtils';
 import { calculateBMR, calculateTDEE } from '../utils/healthMath';
 
 interface NutritionSystemProps {
@@ -30,7 +31,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
   const [scanError, setScanError] = useState<string | null>(null);
   const hasGeminiKey = !!getStoredGeminiKey();
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   const weight = userMemory.goals.currentWeightKg || userMemory.goals.targetWeightKg || 75;
   const focus = userMemory.goals.focusArea || 'health';
   const diet = userMemory.preferences.dietType || 'omnivore';

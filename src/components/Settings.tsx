@@ -4,6 +4,7 @@ import { isFirebaseEnabled } from '../services/firebase';
 import { saveUserMemory, saveProgressLog, getProgressLogForDate } from '../services/dbService';
 import { awardXp } from '../services/rpgService';
 import { calculateBMR, calculateTDEE, calculateBMI } from '../utils/healthMath';
+import { getLocalDateString } from '../utils/dateUtils';
 import { UserProfile, UserMemory } from '../types';
 import { Key, ShieldCheck, Database, RefreshCw, AlertTriangle, Cpu, User, Scale, Activity, Heart, Info, Dumbbell, Apple } from 'lucide-react';
 
@@ -146,7 +147,7 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
 
       await saveUserMemory(userProfile.uid, updatedMemory);
 
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
       const log = await getProgressLogForDate(userProfile.uid, todayStr);
       await saveProgressLog(userProfile.uid, {
         ...log,

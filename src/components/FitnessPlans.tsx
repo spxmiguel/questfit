@@ -4,6 +4,7 @@ import { Dumbbell, Calendar, Play, CheckCircle2, ChevronRight, AlertTriangle, Sh
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests, saveUserMemory } from '../services/dbService';
 import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
+import { getLocalDateString } from '../utils/dateUtils';
 
 interface FitnessPlansProps {
   userProfile: UserProfile;
@@ -120,7 +121,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
   const [expandedExerciseIndex, setExpandedExerciseIndex] = useState<number | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   const focus = userMemory.goals.focusArea || 'health';
   const location = userMemory.preferences.location || 'home';
   const injuries = userMemory.healthConstraints.injuries || [];

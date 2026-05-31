@@ -11,6 +11,7 @@ import {
 import { db, isFirebaseEnabled } from './firebase';
 import { UserProfile, UserMemory, Quest, ProgressLog, Achievement, ChatMessage } from '../types';
 import { getDefaultQuests, getDefaultAchievements, getXpNeededForLevel, getTitleForLevel } from '../utils/xpCalc';
+import { getLocalDateString } from '../utils/dateUtils';
 
 // Helper to check LocalStorage key-value storage
 const getLocal = <T>(key: string): T | null => {
@@ -153,7 +154,7 @@ export const saveUserMemory = async (uid: string, memory: UserMemory): Promise<v
 // 3. Quest Engine Services
 // ----------------------------------------------------
 export const getQuests = async (uid: string): Promise<Quest[]> => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   const cached = getLocal<Quest[]>(`questfit_quests_${uid}`);
   
   const cachedMemory = getLocal<UserMemory>(`questfit_memory_${uid}`);

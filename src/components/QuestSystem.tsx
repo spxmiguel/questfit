@@ -3,6 +3,7 @@ import { Quest, UserProfile, ProgressLog } from '../types';
 import { saveQuest, saveProgressLog, getProgressLogForDate } from '../services/dbService';
 import { awardXp } from '../services/rpgService';
 import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
+import { getLocalDateString } from '../utils/dateUtils';
 import { CheckCircle, Dumbbell, Compass, Flame, Droplet, Plus, Minus, Footprints, Carrot, HelpCircle, Trophy } from 'lucide-react';
 
 interface QuestProps {
@@ -19,7 +20,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
   const [showWorkoutModal, setShowWorkoutModal] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
 
   const handleQuestCompletion = (quest: Quest, updatedProgress: number) => {
     try {

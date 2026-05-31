@@ -1,4 +1,5 @@
 import { Quest, Achievement } from '../types';
+import { getLocalDateString } from './dateUtils';
 
 export const getXpNeededForLevel = (level: number): number => {
   return Math.round(level * 100 * 1.5);
@@ -31,7 +32,7 @@ export const checkLevelUp = (level: number, xp: number): { leveledUp: boolean; n
 };
 
 export const getDefaultQuests = (weightKg?: number): Quest[] => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   const waterTarget = weightKg ? Math.round(weightKg * 35) : 2000;
   const finalWaterTarget = Math.max(1500, Math.min(waterTarget, 4500));
   
