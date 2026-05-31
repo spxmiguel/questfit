@@ -24,7 +24,7 @@ const setLocal = <T>(key: string, data: T): void => {
 // ----------------------------------------------------
 // 1. User Profile Services
 // ----------------------------------------------------
-export const getUserProfile = async (uid: string): Promise<UserProfile> => {
+export const getUserProfile = async (uid: string, defaultName?: string, defaultEmail?: string): Promise<UserProfile> => {
   if (isFirebaseEnabled && db) {
     const docRef = doc(db, 'users', uid);
     const snap = await getDoc(docRef);
@@ -39,8 +39,8 @@ export const getUserProfile = async (uid: string): Promise<UserProfile> => {
   // Create default profile if not exists
   const defaultProfile: UserProfile = {
     uid,
-    displayName: uid.startsWith('mock_') ? uid.replace('mock_', '') : 'Guerreiro',
-    email: '',
+    displayName: defaultName || (uid.startsWith('mock_') ? uid.replace('mock_', '') : 'Guerreiro'),
+    email: defaultEmail || '',
     createdAt: new Date().toISOString(),
     level: 1,
     xp: 0,

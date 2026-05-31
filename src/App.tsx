@@ -35,6 +35,7 @@ function App() {
   const [dataLoading, setDataLoading] = useState(false);
   const [emailLinkLoggingIn, setEmailLinkLoggingIn] = useState(false);
   const [emailLinkError, setEmailLinkError] = useState<string | null>(null);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   // App States
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -86,14 +87,16 @@ function App() {
       setUserMemory(null);
       setQuests([]);
       setAchievements([]);
+      setDataError(null);
       return;
     }
 
     const loadUserData = async () => {
       setDataLoading(true);
+      setDataError(null);
       try {
-        // Fetch raw profile
-        let profile = await getUserProfile(session.uid);
+        // Fetch raw profile passing Google / Email session info
+        let profile = await getUserProfile(session.uid, session.displayName, session.email);
         
         // Check and update login streak
         profile = await checkAndUpdateStreak(session.uid, profile);
@@ -107,8 +110,9 @@ function App() {
         setUserMemory(memory);
         setQuests(activeQuests);
         setAchievements(unlockedAchievements);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching user data:', err);
+        setDataError(err.message || 'Erro desconhecido ao carregar os dados de progresso no banco.');
       } finally {
         setDataLoading(false);
       }
@@ -259,6 +263,45 @@ function App() {
   // Auth screen if not logged in
   if (!session) {
     return <Auth onSuccess={() => {}} />;
+  }
+
+  // Data fetching loading screen or error
+  if (dataError) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-white p-4">
+        <div className="glass-panel p-8 rounded-[32px] max-w-md w-full text-center space-y-6">
+          <div className="inline-flex p-4 rounded-3xl bg-rose-500/20 text-rose-400 border border-rose-500/20">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-white">Falha ao Carregar Ficha</h2>
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            Houve um erro de comunicação com o banco de dados do Firestore.
+          </p>
+          <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-2xl font-mono text-left break-all">
+            {dataError}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setDataError(null);
+                window.location.reload();
+              }}
+              className="flex-1 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-2xl transition duration-200 cursor-pointer shadow-lg shadow-violet-600/20 text-sm"
+            >
+              Recarregar
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex-1 py-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white font-bold rounded-2xl transition duration-200 cursor-pointer text-sm"
+            >
+              Sair da Conta
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Data fetching loading screen
