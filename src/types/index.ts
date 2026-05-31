@@ -24,8 +24,7 @@ export interface UserMemory {
     timeOfDay?: 'morning' | 'afternoon' | 'evening';
     dietType?: 'omnivore' | 'vegetarian' | 'vegan' | 'carnivore' | 'keto' | 'lowcarb';
     allergies?: string[];
-    /** Free-text field — user writes food dislikes/restrictions in natural language.
-     *  Passed raw to the AI so it can interpret nuance ("odeio legumes", "frutas raramente"). */
+    /** Free-text food restrictions in natural language — interpreted by AI */
     foodRestrictionsRaw?: string;
     dislikedExercises?: string[];
   };
@@ -45,6 +44,30 @@ export interface UserMemory {
     gender?: 'male' | 'female';
     activityLevel?: 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
   };
+
+  // ── Mini AI brain — personality & wellbeing tracking ──────────────────────
+  /** How the coach should communicate — mirrors the user's detected speaking style */
+  coachPersonality?: {
+    userTone?: 'casual' | 'formal' | 'slangy';
+    /** Observed patterns: "uses vc/q/n, informal, no punctuation, uses kkk" */
+    speakingStyle?: string;
+    useEmojis?: boolean;
+  };
+  /** Real-time wellbeing state — updated by the coach during conversations */
+  wellbeing?: {
+    currentMood?: 'great' | 'good' | 'tired' | 'stressed' | 'bad';
+    energyLevel?: 'high' | 'medium' | 'low';
+    motivationLevel?: 'high' | 'medium' | 'low';
+    /** Last few things the user complained about in natural language */
+    recentComplaints?: string[];
+    /** Specific exercises the user complained about: ["Agachamento - dói joelho"] */
+    exerciseComplaints?: string[];
+    /** Foods/ingredients that caused issues: ["frango à noite - enjoa"] */
+    foodComplaints?: string[];
+  };
+  /** Free-text body notes — pains, limitations, sensations detected during chat */
+  bodyNotes?: string;
+
   lastUpdated: string; // ISO String
 }
 

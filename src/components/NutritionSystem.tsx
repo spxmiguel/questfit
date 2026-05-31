@@ -3,7 +3,7 @@ import { UserProfile, UserMemory, ProgressLog } from '../types';
 import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, CheckSquare, Camera, Upload, Image, Share2, Trash2, Wand2, Edit3, RefreshCw } from 'lucide-react';
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests } from '../services/dbService';
-import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey, regenerateMealSuggestion } from '../services/aiService';
+import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey, regenerateMealSuggestion, generateDailyMealPlan } from '../services/aiService';
 import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
 import { getLocalDateString } from '../utils/dateUtils';
 import { calculateBMR, calculateTDEE } from '../utils/healthMath';
@@ -116,22 +116,55 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
   const [customInstruction, setCustomInstruction] = useState<string>('');
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [isGeneratingMealPlan, setIsGeneratingMealPlan] = useState(false);
 
+  // ── Load meals: cached custom → today's AI plan → static fallback ──────────
   useEffect(() => {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
+    const customCached = localStorage.getItem(cacheKey);
+    if (customCached) {
       try {
-        setMeals(JSON.parse(cached));
-      } catch (e) {
-        console.error('Failed to parse cached meals:', e);
-        setMeals(getDefaultMealSuggestions(diet));
-      }
-    } else {
-      setMeals(getDefaultMealSuggestions(diet));
+        setMeals(JSON.parse(customCached));
+        setEditingMealIndex(null);
+        setCustomInstruction('');
+        setRegenerateError(null);
+        return;
+      } catch {}
     }
+
+    // No custom meals for this diet — check if we have today's AI plan
+    const aiPlanKey = `questfit_ai_mealplan_${userProfile.uid}_${diet}_${todayStr}`;
+    const aiCached = localStorage.getItem(aiPlanKey);
+    if (aiCached) {
+      try {
+        setMeals(JSON.parse(aiCached));
+        setEditingMealIndex(null);
+        setCustomInstruction('');
+        setRegenerateError(null);
+        return;
+      } catch {}
+    }
+
+    // Nothing cached — show static meals immediately, generate AI plan in background
+    setMeals(getDefaultMealSuggestions(diet));
     setEditingMealIndex(null);
     setCustomInstruction('');
     setRegenerateError(null);
+
+    if (getStoredGeminiKey()) {
+      setIsGeneratingMealPlan(true);
+      generateDailyMealPlan(
+        userMemory,
+        userProfile.uid,
+        todayStr,
+        targets.calories,
+        targets.protein
+      ).then(aiMeals => {
+        if (aiMeals && aiMeals.length >= 4) {
+          setMeals(aiMeals);
+        }
+      }).catch(console.error)
+        .finally(() => setIsGeneratingMealPlan(false));
+    }
   }, [userProfile.uid, diet, cacheKey]);
 
   const handleResetMeals = () => {
@@ -836,8 +869,13 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
             
             <div className="flex justify-between items-center pb-2 border-b border-zinc-850">
               <h3 className="font-bold text-sm text-zinc-350 uppercase tracking-wider flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-yellow-400" />
+                <Sparkles className={`w-4 h-4 text-yellow-400 ${isGeneratingMealPlan ? 'animate-spin' : ''}`} />
                 Cardápio IA do Dia
+                {isGeneratingMealPlan && (
+                  <span className="text-[9px] font-semibold text-yellow-500/80 normal-case tracking-normal">
+                    Personalizando com IA...
+                  </span>
+                )}
               </h3>
 
               <div className="flex gap-2">
