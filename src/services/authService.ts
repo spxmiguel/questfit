@@ -145,18 +145,34 @@ if (isFirebaseEnabled && auth) {
 export const subscribeToAuth = (callback: AuthCallback) => {
   listeners.push(callback);
   
-  // Wait for redirect to finish before triggering the first state update to prevent flashes
-  const checkAndNotify = () => {
-    if (redirectResultPending || isRedirectPending()) {
-      setTimeout(checkAndNotify, 50);
-    } else {
+  // If Firebase is disabled or not initialized, notify immediately to avoid any loading hang
+  if (!isFirebaseEnabled || !auth) {
+    callback(currentUser);
+    return () => {
+      const idx = listeners.indexOf(callback);
+      if (idx !== -1) listeners.splice(idx, 1);
+    };
+  }
+
+  let completed = false;
+  const safeNotify = () => {
+    if (!completed) {
+      completed = true;
       callback(currentUser);
     }
   };
-  checkAndNotify();
+  
+  // Safe fallback timeout of 2.5 seconds to guarantee the loading screen is never stuck
+  const fallbackTimeout = setTimeout(safeNotify, 2500);
+
+  redirectPromise.then(() => {
+    clearTimeout(fallbackTimeout);
+    safeNotify();
+  });
 
   // Return unsubscribe function
   return () => {
+    clearTimeout(fallbackTimeout);
     const idx = listeners.indexOf(callback);
     if (idx !== -1) listeners.splice(idx, 1);
   };
