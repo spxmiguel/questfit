@@ -58,6 +58,14 @@ export interface Quest {
   unit: string;
 }
 
+export interface LoggedFood {
+  id: string;
+  name: string;
+  calories: number;
+  protein: number;
+  timestamp: string;
+}
+
 export interface ProgressLog {
   id: string;
   date: string; // YYYY-MM-DD
@@ -68,6 +76,7 @@ export interface ProgressLog {
   workoutCompleted: boolean;
   stepsCompleted: number;
   xpEarned: number;
+  loggedFoods?: LoggedFood[];
 }
 
 export interface Achievement {

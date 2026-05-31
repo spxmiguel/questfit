@@ -16,6 +16,7 @@ interface NutritionSystemProps {
 export default function NutritionSystem({ userProfile, userMemory, onNutritionLogged }: NutritionSystemProps) {
   const [calorieInput, setCalorieInput] = useState('');
   const [proteinInput, setProteinInput] = useState('');
+  const [foodNameInput, setFoodNameInput] = useState('');
   const [todayLog, setTodayLog] = useState<ProgressLog | null>(null);
   const [groceryItems, setGroceryItems] = useState<{ id: string; name: string; checked: boolean }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -134,10 +135,19 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
         xpEarned: 0
       };
 
+      const newFood = {
+        id: `food_${Date.now()}`,
+        name: foodNameInput.trim() || 'Refeição Manual',
+        calories: cals,
+        protein: prot,
+        timestamp: new Date().toISOString()
+      };
+
       const updatedLog: ProgressLog = {
         ...currentLog,
         caloriesConsumed: (currentLog.caloriesConsumed || 0) + cals,
-        proteinConsumedG: (currentLog.proteinConsumedG || 0) + prot
+        proteinConsumedG: (currentLog.proteinConsumedG || 0) + prot,
+        loggedFoods: [...(currentLog.loggedFoods || []), newFood]
       };
 
       // Update UI state immediately
@@ -156,6 +166,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
 
       setCalorieInput('');
       setProteinInput('');
+      setFoodNameInput('');
       onNutritionLogged(localUpdatedProfile, []);
 
       // Save in background (async, non-blocking)
@@ -165,7 +176,8 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
           const finalLog: ProgressLog = {
             ...log,
             caloriesConsumed: (log.caloriesConsumed || 0) + cals,
-            proteinConsumedG: (log.proteinConsumedG || 0) + prot
+            proteinConsumedG: (log.proteinConsumedG || 0) + prot,
+            loggedFoods: [...(log.loggedFoods || []), newFood]
           };
           await saveProgressLog(userProfile.uid, finalLog);
           const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
@@ -196,7 +208,8 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
         const updatedLog: ProgressLog = {
           ...currentLog,
           caloriesConsumed: 0,
-          proteinConsumedG: 0
+          proteinConsumedG: 0,
+          loggedFoods: []
         };
 
         setTodayLog(updatedLog);
@@ -209,7 +222,8 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
             const finalLog: ProgressLog = {
               ...log,
               caloriesConsumed: 0,
-              proteinConsumedG: 0
+              proteinConsumedG: 0,
+              loggedFoods: []
             };
             await saveProgressLog(userProfile.uid, finalLog);
           } catch (err) {
@@ -267,10 +281,19 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
         xpEarned: 0
       };
 
+      const newFood = {
+        id: `food_${Date.now()}`,
+        name: scanResult.mealName || 'Scanner de Prato (IA)',
+        calories: scanResult.calories,
+        protein: scanResult.protein,
+        timestamp: new Date().toISOString()
+      };
+
       const updatedLog: ProgressLog = {
         ...currentLog,
         caloriesConsumed: (currentLog.caloriesConsumed || 0) + scanResult.calories,
-        proteinConsumedG: (currentLog.proteinConsumedG || 0) + scanResult.protein
+        proteinConsumedG: (currentLog.proteinConsumedG || 0) + scanResult.protein,
+        loggedFoods: [...(currentLog.loggedFoods || []), newFood]
       };
 
       setTodayLog(updatedLog);
@@ -298,7 +321,8 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
           const finalLog: ProgressLog = {
             ...log,
             caloriesConsumed: (log.caloriesConsumed || 0) + scanResult.calories,
-            proteinConsumedG: (log.proteinConsumedG || 0) + scanResult.protein
+            proteinConsumedG: (log.proteinConsumedG || 0) + scanResult.protein,
+            loggedFoods: [...(log.loggedFoods || []), newFood]
           };
           await saveProgressLog(userProfile.uid, finalLog);
           const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
@@ -472,6 +496,18 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
 
             {/* Logging Form */}
             <form onSubmit={handleLogIntake} className="space-y-3 pt-3 border-t border-zinc-900">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase">O que você comeu?</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Arroz, feijão e frango, whey com aveia..."
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-3 text-white text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  value={foodNameInput}
+                  onChange={(e) => setFoodNameInput(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-zinc-500 uppercase">Calorias (kcal)</label>
@@ -502,7 +538,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
               <div className="flex flex-col gap-2 pt-1">
                 <button
                   type="submit"
-                  disabled={loading || !calorieInput || !proteinInput}
+                  disabled={loading || !calorieInput || !proteinInput || !foodNameInput.trim()}
                   className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition duration-150 cursor-pointer text-xs shadow-lg shadow-orange-600/15"
                 >
                   Logar Refeição (+25 XP)
@@ -523,6 +559,32 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
               </div>
             </form>
           </div>
+
+          {/* Today's Eaten Meals List */}
+          {todayLog?.loggedFoods && todayLog.loggedFoods.length > 0 && (
+            <div className="glass-panel p-6 rounded-[32px] space-y-4 animate-scale-up">
+              <h3 className="font-bold text-sm text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                <Carrot className="w-4 h-4 text-orange-400" />
+                Refeições de Hoje
+              </h3>
+              <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                {todayLog.loggedFoods.map((food, idx) => (
+                  <div key={food.id || idx} className="p-3 bg-zinc-900/40 border border-zinc-800 rounded-2xl flex justify-between items-center text-xs">
+                    <div className="min-w-0 flex-1 pr-2">
+                      <h4 className="font-bold text-zinc-200 truncate leading-snug">{food.name}</h4>
+                      <span className="text-[9px] text-zinc-500">
+                        {new Date(food.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className="font-extrabold text-orange-400 block">{food.calories} kcal</span>
+                      <span className="text-[9px] font-bold text-violet-400">+{food.protein}g prot</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* AI Photo Scanner */}
           <div className="glass-panel p-6 rounded-[32px] space-y-5">
