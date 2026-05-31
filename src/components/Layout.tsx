@@ -1,18 +1,19 @@
 import React from 'react';
 import { UserSession } from '../services/authService';
-import { 
-  Dumbbell, 
-  Trophy, 
-  MessageSquare, 
-  LineChart, 
-  Settings as SettingsIcon, 
-  LogOut, 
-  Home, 
-  ShieldAlert, 
+import {
+  Dumbbell,
+  Trophy,
+  MessageSquare,
+  LineChart,
+  Settings as SettingsIcon,
+  LogOut,
+  Home,
+  ShieldAlert,
   X,
   Sparkles,
   Compass,
-  Carrot
+  Carrot,
+  Apple
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -46,6 +47,7 @@ export default function Layout({
     { id: 'quests', label: 'Metas', icon: Compass },
     { id: 'workouts', label: 'Treinos', icon: Dumbbell },
     { id: 'nutrition', label: 'Nutrição', icon: Carrot },
+    { id: 'nutritionist', label: 'Nutricionista', icon: Apple },
     { id: 'chat', label: 'Coach IA', icon: MessageSquare },
     { id: 'analytics', label: 'Evolução', icon: LineChart },
     { id: 'rpg', label: 'Conquistas', icon: Trophy },

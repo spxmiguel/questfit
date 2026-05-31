@@ -28,6 +28,7 @@ import AICoachChat from './components/AICoachChat';
 import ProgressAnalytics from './components/ProgressAnalytics';
 import RPGProgression from './components/RPGProgression';
 import Settings from './components/Settings';
+import NutritionistChat from './components/NutritionistChat';
 import FitnessPlans from './components/FitnessPlans';
 import NutritionSystem from './components/NutritionSystem';
 
@@ -512,6 +513,14 @@ function App() {
               );
               handleQuestUpdate(optimisticQuests, profile, achs);
             }}
+          />
+        );
+      case 'nutritionist':
+        return (
+          <NutritionistChat
+            userProfile={userProfile}
+            userMemory={userMemory}
+            onMemoryUpdate={handleMemoryUpdate}
           />
         );
       case 'chat':

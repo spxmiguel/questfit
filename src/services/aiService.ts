@@ -163,11 +163,13 @@ Ao detectar qualquer dado novo (humor, reclamação, lesão, alimento, equipamen
     "waterIntakeMl": 1500,
     "caloriesConsumed": 1200,
     "proteinConsumedG": 85,
-    "stepsCompleted": 6000
+    "stepsCompleted": 6000,
+    "workoutCompleted": true
   }
 }
 \`\`\`
-IMPORTANTE: Inclua APENAS campos que MUDARAM. Não explique o JSON. Coloque no final da resposta.`;
+IMPORTANTE: Inclua APENAS campos que MUDARAM. Não explique o JSON. Coloque no final da resposta.
+TREINO: Se o usuário disser que fez/completou um treino hoje → inclua "workoutCompleted": true no updateLog.`;
 };
 
 // Handle memory and log updates from the raw text response
@@ -739,4 +741,201 @@ Responda APENAS com um objeto JSON válido, sem crases, markdown ou qualquer tex
     console.error('Error analyzing workout image with Gemini:', err);
     throw new Error('Falha ao analisar foto de treino. Verifique se a sua chave API da Gemini nas Configurações é válida.');
   }
+};
+
+// ─── Nutritionist AI ────────────────────────────────────────────────────────
+
+export interface NutritionistResponse {
+  text: string;
+  mealPlan?: { name: string; desc: string }[];
+  groceryList?: string[];
+  memoryUpdate?: Partial<UserMemory>;
+  logUpdate?: {
+    caloriesConsumed?: number;
+    proteinConsumedG?: number;
+  };
+}
+
+const getNutritionistSystemPrompt = (memory: UserMemory): string => {
+  const restrictions = [
+    memory.preferences?.foodRestrictionsRaw,
+    memory.wellbeing?.foodComplaints?.join(', ')
+  ].filter(Boolean).join('. ');
+
+  const diet = memory.preferences?.dietType || 'omnivore';
+  const focus = memory.goals?.focusArea || 'health';
+  const weightKg = memory.goals?.currentWeightKg || memory.physicalProfile?.weightKg;
+
+  return `Você é uma Nutricionista IA especializada em alimentação personalizada.
+Seu objetivo é construir um plano alimentar completo CONVERSANDO com o usuário — aprendendo o que ele gosta, o que odeia, seus horários e hábitos — e gerar um cardápio diário que ele vai seguir com prazer.
+
+PERSONALIDADE:
+- Empática, prática, sem julgamentos
+- Não força o usuário a comer o que não gosta
+- Sugere alternativas quando ele rejeita algo
+- Estima calorias quando o usuário não sabe (ex: "comi um pão com manteiga" → ~200 kcal)
+- Fala de forma natural, não de forma robótica ou muito técnica
+
+PERFIL ATUAL DO USUÁRIO:
+- Dieta: ${diet} | Objetivo: ${focus}
+- Peso: ${weightKg ? weightKg + ' kg' : 'não informado'}
+- Restrições alimentares conhecidas: ${restrictions || 'nenhuma registrada'}
+- Preferências: ${JSON.stringify(memory.preferences || {})}
+- Reclamações alimentares: ${memory.wellbeing?.foodComplaints?.join(', ') || 'nenhuma'}
+
+FLUXO DE CONVERSA:
+1. Pergunte o que o usuário gosta de comer (café, almoço, jantar)
+2. Pergunte o que ele NÃO come de jeito nenhum
+3. Pergunte sua rotina de horários
+4. Com isso, gere um cardápio personalizado
+5. Quando o usuário disser o que comeu hoje → registre no log com estimativa de calorias
+
+REGISTRO DE REFEIÇÕES (PRIORITÁRIO):
+Quando o usuário mencionar que comeu algo hoje:
+- Estime as calorias e proteínas com base no que ele descreveu
+- Seja realista: "comi arroz com feijão e frango" → ~550 kcal, ~35g proteína
+- Informe ao usuário a estimativa de forma clara
+- Inclua no JSON: updateLog.caloriesConsumed (TOTAL do dia atualizado) e proteinConsumedG
+
+QUANDO TIVER INFORMAÇÕES SUFICIENTES PARA GERAR O CARDÁPIO:
+Inclua ao final da resposta um bloco JSON:
+
+\`\`\`json
+{
+  "mealPlan": [
+    {"name": "Café da Manhã", "desc": "descrição detalhada em 1-2 frases com quantidades"},
+    {"name": "Almoço", "desc": "..."},
+    {"name": "Lanche da Tarde", "desc": "..."},
+    {"name": "Jantar", "desc": "..."}
+  ],
+  "groceryList": [
+    "Frango peito 1kg",
+    "Arroz integral 500g",
+    "Brócolis 400g"
+  ],
+  "updateLog": {
+    "caloriesConsumed": 1850,
+    "proteinConsumedG": 120
+  },
+  "updateMemory": {
+    "preferences": {
+      "foodRestrictionsRaw": "texto corrido com TUDO que o usuário não come",
+      "allergies": ["lista de alérgenos"],
+      "dietType": "omnivore|vegetarian|vegan|carnivore|keto|lowcarb"
+    },
+    "wellbeing": {
+      "foodComplaints": ["alimento - motivo"]
+    }
+  }
+}
+\`\`\`
+
+REGRAS:
+- Inclua mealPlan + groceryList APENAS quando tiver informações suficientes
+- groceryList deve ter os principais itens para 1 semana seguindo o cardápio
+- Inclua updateLog SEMPRE que o usuário mencionar o que comeu
+- Inclua updateMemory quando aprender novas preferências/restrições
+- Não explique o JSON. Coloque ao final da resposta.`;
+};
+
+const extractNutritionistResponse = (rawText: string): NutritionistResponse => {
+  const jsonRegex = /```json\s*(\{[\s\S]*?\})\s*```/;
+  const match = rawText.match(jsonRegex);
+  const text = rawText.replace(jsonRegex, '').trim();
+
+  if (match && match[1]) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      return {
+        text,
+        mealPlan: Array.isArray(parsed.mealPlan) && parsed.mealPlan.length >= 4
+          ? parsed.mealPlan
+          : undefined,
+        groceryList: Array.isArray(parsed.groceryList) && parsed.groceryList.length > 0
+          ? parsed.groceryList
+          : undefined,
+        memoryUpdate: parsed.updateMemory || undefined,
+        logUpdate: parsed.updateLog || undefined
+      };
+    } catch (e) {
+      console.warn('Failed to parse nutritionist JSON:', e);
+    }
+  }
+
+  return { text };
+};
+
+export const sendNutritionistMessage = async (
+  message: string,
+  history: ChatMessage[],
+  memory: UserMemory
+): Promise<NutritionistResponse> => {
+  const systemPrompt = getNutritionistSystemPrompt(memory);
+  const groqKey = getStoredGroqKey();
+  const geminiKey = getStoredGeminiKey();
+
+  // Groq (faster, preferred)
+  if (groqKey) {
+    try {
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.slice(-20).map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'assistant',
+          content: msg.text
+        })),
+        { role: 'user', content: message }
+      ];
+
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${groqKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages,
+          temperature: 0.7,
+          max_tokens: 1200
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Groq API error: ${response.status} - ${errText}`);
+      }
+
+      const data = await response.json();
+      const aiText = data.choices[0].message.content || '';
+      return extractNutritionistResponse(aiText);
+    } catch (err: any) {
+      if (!geminiKey) throw err;
+      // fallthrough to Gemini
+    }
+  }
+
+  // Gemini fallback
+  if (geminiKey) {
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction: systemPrompt,
+      generationConfig: { temperature: 0.7, maxOutputTokens: 1200 }
+    });
+
+    const contents = history.slice(-20).map(msg => ({
+      role: msg.sender === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.text }]
+    }));
+    contents.push({ role: 'user', parts: [{ text: message }] });
+
+    const result = await model.generateContent({ contents });
+    const aiText = result.response.text();
+    return extractNutritionistResponse(aiText);
+  }
+
+  // No API key mock
+  return {
+    text: `Para usar a Nutricionista IA, configure sua chave da API Gemini ou Groq nas Configurações (aba Ajustes). Depois voltamos a conversar sobre seu cardápio! 🥗`
+  };
 };

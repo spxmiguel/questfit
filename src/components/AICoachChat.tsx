@@ -216,6 +216,38 @@ export default function AICoachChat({ userProfile, userMemory, quests, onMemoryU
             }
           }
         }
+
+        // Workout registration via chat
+        if ((response.logUpdate as any).workoutCompleted === true) {
+          const workoutQuestIdx = finalQuests.findIndex(q => q.type === 'workout' && q.category === 'daily');
+          if (workoutQuestIdx !== -1 && !finalQuests[workoutQuestIdx].completed) {
+            const workoutQuest = finalQuests[workoutQuestIdx];
+            const updatedWQ = {
+              ...workoutQuest,
+              progress: 1,
+              completed: true,
+              completedDate: new Date().toISOString()
+            };
+            await saveQuest(userProfile.uid, updatedWQ);
+            finalQuests[workoutQuestIdx] = updatedWQ;
+
+            // Also update weekly workouts quest
+            const weeklyWIdx = finalQuests.findIndex(q => q.id === 'weekly-workouts');
+            if (weeklyWIdx !== -1 && !finalQuests[weeklyWIdx].completed) {
+              const ww = finalQuests[weeklyWIdx];
+              const newProgress = ww.progress + 1;
+              const weeklyDone = newProgress >= ww.target;
+              const updatedWW = { ...ww, progress: newProgress, completed: weeklyDone, completedDate: weeklyDone ? new Date().toISOString() : undefined };
+              await saveQuest(userProfile.uid, updatedWW);
+              finalQuests[weeklyWIdx] = updatedWW;
+            }
+
+            const res = await awardXp(userProfile.uid, finalProfile, workoutQuest.xpReward, 'workout');
+            finalProfile = res.profile;
+            newlyUnlockedAchs = [...newlyUnlockedAchs, ...res.unlockedAchievements];
+            if (!notifTextStr) notifTextStr = `Treino registrado pelo Coach! +${workoutQuest.xpReward} XP`;
+          }
+        }
       }
 
       if (updateMade) {
