@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { loginWithEmail, registerWithEmail, loginWithGoogle, sendPasswordlessLink } from '../services/authService';
+import React, { useState, useEffect } from 'react';
+import { loginWithEmail, registerWithEmail, loginWithGoogle, sendPasswordlessLink, getRedirectError } from '../services/authService';
 import { isFirebaseEnabled } from '../services/firebase';
 import { Dumbbell, Mail, Lock, User, Sparkles } from 'lucide-react';
 
@@ -16,6 +16,13 @@ export default function Auth({ onSuccess }: AuthProps) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const redirectErr = getRedirectError();
+    if (redirectErr) {
+      setError(redirectErr);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,37 +51,26 @@ export default function Auth({ onSuccess }: AuthProps) {
   };
 
   const handleGoogleLogin = () => {
-    // WebKit/Safari requirement: call popup opening method as the absolute first statement on click
-    const loginPromise = loginWithGoogle();
-    
     setError('');
     setLoading(true);
-
-    // Timeout of 12 seconds to prevent endless spinning on Safari/iOS if Firebase handshake hangs
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error('TIMEOUT_GOOGLE'));
-      }, 12000);
-    });
-
-    Promise.race([loginPromise, timeoutPromise])
-      .then(() => {
-        onSuccess();
+    loginWithGoogle()
+      .then((session) => {
+        if (session) {
+          onSuccess();
+        }
       })
       .catch((err: any) => {
         console.error(err);
-        if (err.message === 'TIMEOUT_GOOGLE') {
-          setError('⚠️ O Google Login travou. Isso é um bloqueio de privacidade nativo do Safari (impedindo comunicação cross-origin). Para corrigir, desative a opção "Impedir Rastreamento entre Sites" nos Ajustes do seu Safari, use o navegador Chrome, ou entre com E-mail/Senha ou Convidado.');
-        } else if (err.code === 'auth/popup-blocked') {
-          setError('⚠️ Pop-up Bloqueado! O Safari bloqueou a janela do Google. Clique no ícone de pop-up bloqueado na barra de endereços (ao lado do endereço do site) e selecione "Sempre Permitir pop-ups de spxmiguel.github.io" para conseguir fazer login.');
+        setLoading(false);
+        if (err.code === 'auth/popup-blocked') {
+          setError('⚠️ O pop-up de login foi bloqueado ou demorou muito para responder. Redirecionando para a página de login do Google...');
         } else if (err.code === 'auth/popup-closed-by-user') {
-          setError('O login foi cancelado ou a janela travou em branco. Se travou em branco, certifique-se de adicionar "spxmiguel.github.io" em "Domínios Autorizados" no Console do Firebase (Authentication → Configurações → Domínios Autorizados).');
+          setError('O login foi cancelado.');
+        } else if (err.code === 'auth/web-storage-unsupported' || err.code === 'auth/operation-not-supported-in-this-environment') {
+          setError('⚠️ Seu navegador bloqueou o acesso ao login do Google. Iniciando redirecionamento...');
         } else {
           setError(err.message || 'Erro ao entrar com o Google.');
         }
-      })
-      .finally(() => {
-        setLoading(false);
       });
   };
 

@@ -54,49 +54,116 @@ if (cachedSession) {
   }
 }
 
+const REDIRECT_PENDING_KEY = 'questfit_google_redirect_pending';
+const POPUP_PENDING_KEY = 'questfit_google_popup_pending';
+
+let redirectHandled = false;
+let redirectResultPending = false;
+let redirectError: string | null = null;
+let redirectPromise: Promise<any> = Promise.resolve();
+
+const isRedirectPending = () => {
+  try { return localStorage.getItem(REDIRECT_PENDING_KEY) === '1'; } catch { return false; }
+};
+const setRedirectPending = () => {
+  try { localStorage.setItem(REDIRECT_PENDING_KEY, '1'); } catch {}
+};
+const clearRedirectPending = () => {
+  try { localStorage.removeItem(REDIRECT_PENDING_KEY); } catch {}
+};
+
+const isPopupPending = () => {
+  try { return localStorage.getItem(POPUP_PENDING_KEY) === '1'; } catch { return false; }
+};
+const setPopupPending = () => {
+  try { localStorage.setItem(POPUP_PENDING_KEY, '1'); } catch {}
+};
+const clearPopupPending = () => {
+  try { localStorage.removeItem(POPUP_PENDING_KEY); } catch {}
+};
+
 // Set up Firebase auth listener if active
 if (isFirebaseEnabled && auth) {
+  // ── Redirect result ──
+  if (!redirectHandled) {
+    redirectHandled = true;
+    redirectResultPending = true;
+
+    redirectPromise = getRedirectResult(auth)
+      .then((result) => {
+        redirectResultPending = false;
+        clearRedirectPending();
+        if (result?.user) {
+          console.log('Successfully logged in via redirect:', result.user);
+          const session: UserSession = {
+            uid: result.user.uid,
+            email: result.user.email || '',
+            displayName: result.user.displayName || 'Guerreiro'
+          };
+          notifyListeners(session);
+          return session;
+        }
+        return null;
+      })
+      .catch((err) => {
+        redirectResultPending = false;
+        clearRedirectPending();
+        console.error('Redirect sign-in error:', err);
+        // Provide user-friendly messages for typical blockages (ITP / cross-site tracking)
+        if (err.code === 'auth/web-storage-unsupported' || err.code === 'auth/operation-not-supported-in-this-environment') {
+          redirectError = '⚠️ Seu navegador bloqueou o acesso ao armazenamento de login do Google (Bloqueio de Cookies de Terceiros). Para corrigir, use o link "Entrar sem Senha" por e-mail, ou desative "Impedir Rastreamento entre Sites" nos Ajustes do seu Safari.';
+        } else {
+          redirectError = err.message || 'Erro ao processar o login com o Google via redirecionamento.';
+        }
+        return null;
+      });
+  }
+
+  // ── Auth state listener ──
   onAuthStateChanged(auth, (firebaseUser) => {
-    if (firebaseUser) {
+    if (!firebaseUser) {
+      // Don't finalize auth state if we are waiting for redirect or popup login
+      if (isRedirectPending()) return;
+      if (redirectResultPending) return; // getRedirectResult() still running
+      if (isPopupPending()) return;
+
+      notifyListeners(null);
+    } else {
+      clearPopupPending();
+      clearRedirectPending();
+      
       const session: UserSession = {
         uid: firebaseUser.uid,
         email: firebaseUser.email || '',
         displayName: firebaseUser.displayName || 'Guerreiro QuestFit'
       };
       notifyListeners(session);
-    } else {
-      notifyListeners(null);
     }
   });
-
-  // Handle redirect results in case Google Login fallback was triggered
-  getRedirectResult(auth)
-    .then((result) => {
-      if (result) {
-        console.log('Successfully logged in via redirect:', result.user);
-        const session: UserSession = {
-          uid: result.user.uid,
-          email: result.user.email || '',
-          displayName: result.user.displayName || 'Guerreiro'
-        };
-        notifyListeners(session);
-      }
-    })
-    .catch((err) => {
-      console.error('Redirect sign-in error:', err);
-    });
 }
 
 export const subscribeToAuth = (callback: AuthCallback) => {
   listeners.push(callback);
-  // Immediate trigger with current cached state
-  callback(currentUser);
+  
+  // Wait for redirect to finish before triggering the first state update to prevent flashes
+  const checkAndNotify = () => {
+    if (redirectResultPending || isRedirectPending()) {
+      setTimeout(checkAndNotify, 50);
+    } else {
+      callback(currentUser);
+    }
+  };
+  checkAndNotify();
 
   // Return unsubscribe function
   return () => {
     const idx = listeners.indexOf(callback);
     if (idx !== -1) listeners.splice(idx, 1);
   };
+};
+
+export const getRedirectError = (): string | null => {
+  return redirectError;
 };
 
 export const getCurrentUser = (): UserSession | null => {
@@ -152,18 +219,67 @@ export const registerWithEmail = async (email: string, pass: string, name: strin
   }
 };
 
-export const loginWithGoogle = (): Promise<UserSession> => {
+export const loginWithGoogle = async (): Promise<UserSession> => {
   if (isFirebaseEnabled && auth) {
     const provider = new GoogleAuthProvider();
-    return signInWithPopup(auth, provider).then(cred => {
+    
+    // WebKit/Safari / ITP workaround:
+    // 1. Try signInWithPopup with a timeout race (Safari popup blocker can freeze the promise in background).
+    // 2. Fall back to signInWithRedirect if popup is blocked, unsupported or throws storage unsupported error.
+    try {
+      setPopupPending();
+      
+      const POPUP_TIMEOUT = Symbol('popup-timeout');
+      const result = await Promise.race([
+        signInWithPopup(auth, provider),
+        new Promise<typeof POPUP_TIMEOUT>((resolve) =>
+          setTimeout(() => resolve(POPUP_TIMEOUT), 15000)
+        ),
+      ]);
+      
+      if (result === POPUP_TIMEOUT) {
+        throw { code: 'auth/popup-blocked' };
+      }
+      
+      clearPopupPending();
+      
       const session: UserSession = {
-        uid: cred.user.uid,
-        email: cred.user.email || '',
-        displayName: cred.user.displayName || 'Guerreiro do Fogo'
+        uid: result.user.uid,
+        email: result.user.email || '',
+        displayName: result.user.displayName || 'Guerreiro'
       };
       notifyListeners(session);
       return session;
-    });
+    } catch (popupErr: any) {
+      clearPopupPending();
+      const code = popupErr?.code;
+      
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        throw popupErr; // Bubbled up to cancel the loading state in UI
+      }
+      
+      // Fallback conditions:
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/web-storage-unsupported' ||
+        code === 'auth/internal-error'
+      ) {
+        console.log('[Auth] Popup blocked or failed, falling back to redirect...');
+        setRedirectPending();
+        try {
+          await signInWithRedirect(auth, provider);
+          // Return a pending promise because the page will redirect and reload
+          return new Promise(() => {});
+        } catch (redirectErr) {
+          clearRedirectPending();
+          console.error('[Auth] redirect fallback error:', redirectErr);
+          throw redirectErr;
+        }
+      }
+      
+      throw popupErr;
+    }
   } else {
     // Mock Google login
     const session: UserSession = {
