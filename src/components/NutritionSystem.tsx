@@ -466,8 +466,8 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
     };
 
     const dietName = dietNames[diet] || diet;
-    let exportText = `📋 CARDÁPIO E METAS ALIMENTARES - QUESTFIT RPG\n`;
-    exportText += `Objetivo do Herói: ${focus === 'weightLoss' ? 'Déficit/Perda de Peso' : focus === 'muscleGain' ? 'Hipertrofia/Ganho Muscular' : 'Saúde Geral'}\n`;
+    let exportText = `📋 CARDÁPIO E METAS ALIMENTARES - QUESTFIT\n`;
+    exportText += `Objetivo: ${focus === 'weightLoss' ? 'Déficit/Perda de Peso' : focus === 'muscleGain' ? 'Hipertrofia/Ganho Muscular' : 'Saúde Geral'}\n`;
     exportText += `Dieta de Preferência: Dieta ${dietName}\n`;
     exportText += `Gasto Calórico Estimado (TDEE): ${targets.tdee} kcal\n`;
     exportText += `Meta Diária: ${targets.calories} kcal | ${targets.protein}g Proteína\n`;
@@ -484,7 +484,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
     });
 
     exportText += `\n--------------------------------------------------\n`;
-    exportText += `Gerado pelo QuestFit Fitness RPG. Mantenha a consistência! ⚔️🏋️‍♂️`;
+    exportText += `Gerado pelo QuestFit. Mantenha a consistência! 🏋️‍♂️`;
 
     navigator.clipboard.writeText(exportText);
     setCopySuccess(true);
@@ -503,7 +503,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       
       {/* Header */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-extrabold tracking-tight">Dieta & Nutrição RPG</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight">Dieta & Nutrição</h1>
         <p className="text-zinc-400">Gerencie seus macro-nutrientes e calorias de forma guiada por inteligência artificial.</p>
       </div>
 
@@ -516,7 +516,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
           <div className="glass-panel p-6 rounded-3xl space-y-5">
             <h3 className="font-bold text-sm text-zinc-300 uppercase tracking-wider flex items-center gap-2">
               <Carrot className="w-4 h-4 text-orange-400" />
-              Alquimia de Nutrientes
+              Metas de Nutrientes
             </h3>
 
             {/* Calories Progress */}
@@ -936,7 +936,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
           <div className="glass-panel p-6 rounded-[32px] space-y-4">
             <h3 className="font-bold text-sm text-zinc-300 uppercase tracking-wider flex items-center gap-2">
               <ShoppingBag className="w-4 h-4 text-violet-400" />
-              Lista de Compras da Guilda
+              Lista de Compras
             </h3>
             <p className="text-xs text-zinc-400">Garanta os ingredientes básicos para a semana de acordo com o seu perfil.</p>
 

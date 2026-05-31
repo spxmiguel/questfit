@@ -308,7 +308,7 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
           <div className="glass-panel p-6 rounded-3xl space-y-4">
             <h3 className="font-bold text-sm text-zinc-400 uppercase tracking-wider flex items-center gap-2">
               <Scale className="w-4 h-4 text-violet-400" />
-              Balança do Herói
+              Controle de Peso
             </h3>
             <p className="text-xs text-zinc-400">Registre seu peso corporal hoje para atualizar a linha do tempo de evolução.</p>
             <form onSubmit={handleLogWeight} className="space-y-3">

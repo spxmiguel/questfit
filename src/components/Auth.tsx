@@ -95,7 +95,7 @@ export default function Auth({ onSuccess }: AuthProps) {
           <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-zinc-200 to-violet-400 bg-clip-text text-transparent">
             QuestFit
           </h1>
-          <p className="text-zinc-400 text-sm">AI Fitness RPG progression system</p>
+          <p className="text-zinc-400 text-sm">Personal Trainer e Nutrição Inteligente</p>
         </div>
 
         <div className="glass-panel p-8 rounded-[32px] shadow-2xl relative">
@@ -134,8 +134,8 @@ export default function Auth({ onSuccess }: AuthProps) {
               : authMethod === 'emaillink'
               ? 'Entrar sem Senha'
               : isLogin 
-              ? 'Entre na sua Guilda' 
-              : 'Crie seu Personagem'}
+              ? 'Entre na sua Conta' 
+              : 'Crie sua Conta'}
           </h2>
 
           {!isFirebaseEnabled && !linkSent && (
@@ -165,7 +165,7 @@ export default function Auth({ onSuccess }: AuthProps) {
                   Enviamos um link de login mágico para <span className="text-violet-400 font-semibold">{email}</span>.
                 </p>
                 <p className="text-xs text-zinc-400 leading-relaxed">
-                  Abra o link enviado na sua caixa de entrada para entrar instantaneamente na guilda.
+                  Abra o link enviado na sua caixa de entrada para entrar instantaneamente no QuestFit.
                 </p>
               </div>
 
@@ -192,7 +192,7 @@ export default function Auth({ onSuccess }: AuthProps) {
                     Para o Firebase enviar e-mails de acesso, o método de login por <strong>Link do E-mail (Sem Senha)</strong> deve estar ativado no Console do Firebase → Authentication → Métodos de Login, e o domínio atual deve constar na lista de domínios autorizados.
                   </p>
                   <p className="mt-1">
-                    Caso tenha problemas para configurar, volte e crie um herói com <strong>E-mail/Senha</strong> normal ou use o botão <strong>Convidado</strong> para testar offline instantaneamente!
+                    Caso tenha problemas para configurar, volte e crie uma conta com <strong>E-mail/Senha</strong> normal ou use o botão <strong>Convidado</strong> para testar offline instantaneamente!
                   </p>
                 </div>
               )}
@@ -210,7 +210,7 @@ export default function Auth({ onSuccess }: AuthProps) {
               {authMethod === 'password' && !isLogin && (
                 <div className="space-y-1">
                   <label htmlFor="name-input" className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-                    Nome do Herói
+                    Seu Nome / Apelido
                   </label>
                   <div className="relative">
                     <User className="absolute left-4 top-3.5 w-4 h-4 text-zinc-500" />
@@ -218,7 +218,7 @@ export default function Auth({ onSuccess }: AuthProps) {
                       type="text"
                       id="name-input"
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl py-3 pl-11 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-violet-500 placeholder-zinc-600 text-sm"
-                      placeholder="Ex: Conan, Lara Croft"
+                      placeholder="Ex: Miguel, Clara"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       required={authMethod === 'password' && !isLogin}
@@ -237,7 +237,7 @@ export default function Auth({ onSuccess }: AuthProps) {
                     type="email"
                     id="email-input"
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl py-3 pl-11 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-violet-500 placeholder-zinc-600 text-sm"
-                    placeholder="heroi@guilda.com"
+                    placeholder="seuemail@exemplo.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -318,7 +318,7 @@ export default function Auth({ onSuccess }: AuthProps) {
                     onClick={() => setIsLogin(!isLogin)}
                     className="text-xs text-zinc-400 hover:text-white transition"
                   >
-                    {isLogin ? 'Não tem um herói criado? Crie sua conta' : 'Já tem um personagem? Entre aqui'}
+                    {isLogin ? 'Não tem uma conta criada? Registre-se aqui' : 'Já tem uma conta? Entre aqui'}
                   </button>
                 </div>
               )}

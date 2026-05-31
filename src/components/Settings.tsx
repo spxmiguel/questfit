@@ -254,7 +254,7 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
             <div>
               <h2 className="text-lg font-bold flex items-center gap-2 text-white">
                 <User className="w-5 h-5 text-violet-400" />
-                Ficha Física do Herói
+                Ficha Física
               </h2>
               <p className="text-xs text-zinc-400 mt-1">Configure seus dados corporais para a IA calcular seu gasto metabólico e personalizar treinos.</p>
             </div>

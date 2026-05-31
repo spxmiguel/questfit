@@ -141,7 +141,7 @@ export default function AICoachChat({ userProfile, userMemory, quests, onMemoryU
             const wasCompleted = waterQuest.completed;
             const updatedQuest = {
               ...waterQuest,
-              progress: Math.min(response.logUpdate.waterIntakeMl, waterQuest.target),
+              progress: Math.max(0, response.logUpdate.waterIntakeMl),
               completed: isNowCompleted,
               completedDate: isNowCompleted ? new Date().toISOString() : undefined
             };
@@ -164,7 +164,7 @@ export default function AICoachChat({ userProfile, userMemory, quests, onMemoryU
             const wasCompleted = stepsQuest.completed;
             const updatedQuest = {
               ...stepsQuest,
-              progress: Math.min(response.logUpdate.stepsCompleted, stepsQuest.target),
+              progress: Math.max(0, response.logUpdate.stepsCompleted),
               completed: isNowCompleted,
               completedDate: isNowCompleted ? new Date().toISOString() : undefined
             };
@@ -420,7 +420,7 @@ export default function AICoachChat({ userProfile, userMemory, quests, onMemoryU
         {/* Safety caution text */}
         <div className="px-6 py-2.5 bg-zinc-950 border-t border-zinc-900 text-center text-[10px] text-zinc-500 flex items-center justify-center gap-1.5">
           <ShieldAlert className="w-3.5 h-3.5 text-zinc-500" />
-          <span>Isenção de responsabilidade: A IA fornece sugestões e diretrizes baseadas em RPG. Sempre consulte um profissional de saúde.</span>
+          <span>Isenção de responsabilidade: A IA fornece sugestões e diretrizes de treino. Sempre consulte um profissional de saúde.</span>
         </div>
       </div>
     </div>

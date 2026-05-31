@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { UserProfile, UserMemory } from '../types';
-import { Dumbbell, Calendar, Play, CheckCircle2, ChevronRight, AlertTriangle, ShieldCheck, Clock, Award, RotateCcw, ThumbsDown, ChevronDown, ChevronUp, Video } from 'lucide-react';
+import { Dumbbell, Calendar, Play, CheckCircle2, ChevronRight, AlertTriangle, ShieldCheck, Clock, Award, RotateCcw, ThumbsDown, ChevronDown, ChevronUp, Video, Plus, Trash2, Camera, Upload, Sparkles } from 'lucide-react';
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests, saveUserMemory } from '../services/dbService';
 import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
 import { getLocalDateString } from '../utils/dateUtils';
+import { analyzeWorkoutPhoto } from '../services/aiService';
 
 interface FitnessPlansProps {
   userProfile: UserProfile;
@@ -117,9 +118,22 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
   const [showSummary, setShowSummary] = useState(false);
   
   // Custom states for customization features
-  const [variantIndex, setVariantIndex] = useState(0);
+  const [dayVariants, setDayVariants] = useState<number[]>([0, 0, 0]);
   const [expandedExerciseIndex, setExpandedExerciseIndex] = useState<number | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
+
+  // Manual Workout States
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualWorkoutName, setManualWorkoutName] = useState('');
+  const [manualWorkoutDuration, setManualWorkoutDuration] = useState('');
+  const [manualWorkoutCalories, setManualWorkoutCalories] = useState('');
+  
+  // Watch photo analyzer states
+  const [manualPhotoFile, setManualPhotoFile] = useState<File | null>(null);
+  const [manualPhotoPreview, setManualPhotoPreview] = useState<string | null>(null);
+  const [manualScanLoading, setManualScanLoading] = useState(false);
+  const [manualScanResult, setManualScanResult] = useState<any | null>(null);
+  const [manualScanError, setManualScanError] = useState<string | null>(null);
 
   const todayStr = getLocalDateString();
   const focus = userMemory.goals.focusArea || 'health';
@@ -172,11 +186,23 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
     const hasKneePain = injuries.includes('kneePain');
     const hasBackPain = injuries.includes('backPain');
     
-    // Equipments check for Home
-    const hasDumbbells = equipment.some(e => e.includes('dumbbell') || e.includes('peso') || e.includes('halter'));
-    const hasTreadmill = equipment.some(e => e.includes('treadmill') || e.includes('esteira'));
-    const hasHandgrip = equipment.some(e => e.includes('handgrip') || e.includes('alicate'));
-    const hasBands = equipment.some(e => e.includes('band') || e.includes('elastico') || e.includes('elástico'));
+    // Equipments check for Home (robust & case-insensitive matching)
+    const hasDumbbells = equipment.some(e => {
+      const s = typeof e === 'string' ? e.toLowerCase() : '';
+      return s.includes('dumbbell') || s.includes('peso') || s.includes('halter') || s.includes('halteres');
+    });
+    const hasTreadmill = equipment.some(e => {
+      const s = typeof e === 'string' ? e.toLowerCase() : '';
+      return s.includes('treadmill') || s.includes('esteira');
+    });
+    const hasHandgrip = equipment.some(e => {
+      const s = typeof e === 'string' ? e.toLowerCase() : '';
+      return s.includes('handgrip') || s.includes('alicate') || s.includes('grip');
+    });
+    const hasBands = equipment.some(e => {
+      const s = typeof e === 'string' ? e.toLowerCase() : '';
+      return s.includes('band') || s.includes('elastico') || s.includes('elástico') || s.includes('faixa');
+    });
 
     // 1. Day A (Upper Body)
     let dayAPool = isGym ? EXERCISE_POOLS.gym_upper : EXERCISE_POOLS.home_upper;
@@ -193,7 +219,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
       }
       dayAPool = homeUpperPool;
     }
-    const dayAExercises = selectExercises(dayAPool, 4, variantIndex);
+    const dayAExercises = selectExercises(dayAPool, 4, dayVariants[0] || 0);
     routine.push({
       dayName: 'Treino A',
       focus: 'Membros Superiores & Força',
@@ -207,7 +233,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
     } else if (!isGym && hasDumbbells) {
       dayBPool = [...EXERCISE_POOLS.home_lower_weights, ...EXERCISE_POOLS.home_lower];
     }
-    const dayBExercises = selectExercises(dayBPool, 4, variantIndex);
+    const dayBExercises = selectExercises(dayBPool, 4, dayVariants[1] || 0);
     routine.push({
       dayName: 'Treino B',
       focus: 'Membros Inferiores & Core',
@@ -219,7 +245,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
     if (hasTreadmill) {
       dayCPool = [...EXERCISE_POOLS.cardio_treadmill, ...dayCPool];
     }
-    const dayCExercises = selectExercises(dayCPool, 3, variantIndex);
+    const dayCExercises = selectExercises(dayCPool, 3, dayVariants[2] || 0);
     routine.push({
       dayName: 'Treino C',
       focus: 'Core & Condicionamento Metabólico',
@@ -323,10 +349,127 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
     }
   };
 
-  // REGENERATE Workout splits variations
+  // REGENERATE Workout splits variations (only the active day!)
   const handleRegenerateWorkout = () => {
-    setVariantIndex(prev => prev + 1);
-    showBannerNotification('Gerando variação de treino alternativa...');
+    setDayVariants(prev => {
+      const copy = [...prev];
+      copy[activeDayIndex] = (copy[activeDayIndex] || 0) + 1;
+      return copy;
+    });
+    showBannerNotification(`Gerando variação de treino alternativa para o ${currentDay.dayName}...`);
+  };
+
+  // Log manual workout (run/treadmill/etc.)
+  const handleLogManualWorkout = async (name: string, duration: number, calories: number) => {
+    if (!name.trim()) return;
+    setLoading(true);
+    try {
+      // Award XP locally (+100 XP)
+      const updatedXp = userProfile.xp + 100;
+      const levelCheck = checkLevelUp(userProfile.level, updatedXp);
+      const localUpdatedProfile: UserProfile = {
+        ...userProfile,
+        level: levelCheck.newLevel,
+        xp: levelCheck.remainingXp,
+        xpNeededForNextLevel: levelCheck.xpNeeded,
+        title: getTitleForLevel(levelCheck.newLevel)
+      };
+
+      // Reset form states
+      setManualWorkoutName('');
+      setManualWorkoutDuration('');
+      setManualWorkoutCalories('');
+      setManualPhotoFile(null);
+      setManualPhotoPreview(null);
+      setManualScanResult(null);
+      setManualScanError(null);
+      setShowManualForm(false);
+      
+      showBannerNotification(`Atividade de "${name}" registrada com sucesso! +100 XP coletados.`);
+      
+      // Update UI state immediately
+      onWorkoutCompleted(localUpdatedProfile, []);
+
+      // Background save (Firestore & XP on DB)
+      (async () => {
+        try {
+          const res = await awardXp(userProfile.uid, userProfile, 100, 'workout');
+
+          const log = await getProgressLogForDate(userProfile.uid, todayStr);
+          await saveProgressLog(userProfile.uid, {
+            ...log,
+            workoutCompleted: true,
+            xpEarned: log.xpEarned + 100
+          });
+
+          const activeQuests = await getQuests(userProfile.uid);
+          const dailyWorkout = activeQuests.find(q => q.type === 'workout' && q.category === 'daily');
+          
+          if (dailyWorkout && !dailyWorkout.completed) {
+            const updatedQuest = {
+              ...dailyWorkout,
+              progress: 1,
+              completed: true,
+              completedDate: new Date().toISOString()
+            };
+            await saveQuest(userProfile.uid, updatedQuest);
+
+            const weeklyWorkouts = activeQuests.find(q => q.id === 'weekly-workouts');
+            if (weeklyWorkouts && !weeklyWorkouts.completed) {
+              const newWeeklyProgress = weeklyWorkouts.progress + 1;
+              const weeklyCompleted = newWeeklyProgress >= weeklyWorkouts.target;
+              
+              await saveQuest(userProfile.uid, {
+                ...weeklyWorkouts,
+                progress: newWeeklyProgress,
+                completed: weeklyCompleted,
+                completedDate: weeklyCompleted ? new Date().toISOString() : undefined
+              });
+            }
+          }
+
+          onWorkoutCompleted(res.profile, res.unlockedAchievements);
+        } catch (dbErr) {
+          console.error('Background manual workout save failed:', dbErr);
+        }
+      })();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleManualPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setManualPhotoFile(file);
+      setManualPhotoPreview(URL.createObjectURL(file));
+      setManualScanResult(null);
+      setManualScanError(null);
+    }
+  };
+
+  const handleAnalyzeManualPhoto = async () => {
+    if (!manualPhotoFile) return;
+    setManualScanLoading(true);
+    setManualScanError(null);
+    setManualScanResult(null);
+
+    try {
+      const result = await analyzeWorkoutPhoto(manualPhotoFile);
+      setManualScanResult(result);
+      
+      // Auto-populate fields from scan results
+      setManualWorkoutName(result.workoutName);
+      setManualWorkoutDuration(result.durationMin.toString());
+      setManualWorkoutCalories(result.caloriesBurned.toString());
+    } catch (err: any) {
+      console.error(err);
+      setManualScanError(err.message || 'Erro ao processar imagem do treino.');
+    } finally {
+      setManualScanLoading(false);
+    }
   };
 
   // DISLIKE Exercise action
@@ -366,7 +509,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
       
       {/* Header */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-extrabold tracking-tight">Ficha de Treino RPG</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight">Ficha de Treino</h1>
         <p className="text-zinc-400">Gerenciador de exercícios inteligentes baseados em suas metas, equipamentos e restrições físicas.</p>
       </div>
 
@@ -532,6 +675,155 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
               })}
             </div>
           </div>
+
+          {/* Manual Workout Section */}
+          <div className="glass-panel p-6 rounded-[32px] border border-zinc-850 space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-violet-400" />
+                  Atividade Extra / Treino Manual
+                </h3>
+                <p className="text-xs text-zinc-450 mt-1">
+                  Fez outro treino hoje (como esteira, corrida na rua, natação)? Registre aqui.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowManualForm(prev => !prev)}
+                className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-350 hover:text-white rounded-xl text-xs font-bold transition duration-150 cursor-pointer flex items-center justify-center gap-1.5 self-start sm:self-center"
+              >
+                {showManualForm ? 'Ocultar Formulário' : 'Registrar Manualmente'}
+              </button>
+            </div>
+
+            {showManualForm && (
+              <div className="border-t border-zinc-850 pt-6 space-y-6 animate-scale-up">
+                {/* Photo Upload for Watch / Treadmill screenshot */}
+                <div className="p-5 bg-zinc-900/40 border border-zinc-800 rounded-2xl space-y-4">
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                      <Camera className="w-4 h-4 text-pink-400" />
+                      Análise Inteligente por Foto (Apple Watch / Garmin / Esteira)
+                    </h4>
+                    <p className="text-[11px] text-zinc-550 leading-relaxed">
+                      Envie uma foto ou print do seu relógio ou painel da esteira mostrando as calorias e tempo. Nossa IA preencherá e analisará o treino automaticamente!
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                    {/* Input file area */}
+                    <div className="relative border-2 border-dashed border-zinc-800 hover:border-violet-500/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 transition bg-zinc-950/40">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleManualPhotoChange}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <Upload className="w-6 h-6 text-zinc-550" />
+                      <span className="text-xs text-zinc-400 font-bold text-center">
+                        {manualPhotoFile ? manualPhotoFile.name : 'Selecionar Imagem'}
+                      </span>
+                      <span className="text-[10px] text-zinc-550 text-center">
+                        PNG, JPG ou JPEG
+                      </span>
+                    </div>
+
+                    {/* Preview & Scan Button */}
+                    {manualPhotoPreview && (
+                      <div className="flex flex-col sm:flex-row items-center gap-4 bg-zinc-950/50 p-3 rounded-xl border border-zinc-850">
+                        <img 
+                          src={manualPhotoPreview} 
+                          alt="Prévia do treino" 
+                          className="w-20 h-20 object-cover rounded-lg border border-zinc-800"
+                        />
+                        <div className="flex flex-col gap-2 w-full">
+                          <button
+                            type="button"
+                            onClick={handleAnalyzeManualPhoto}
+                            disabled={manualScanLoading}
+                            className="px-4 py-2 bg-pink-650 hover:bg-pink-600 active:scale-98 text-white text-xs font-bold rounded-xl transition duration-150 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5 w-full"
+                          >
+                            {manualScanLoading ? (
+                              <>
+                                <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                                Analisando...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3.5 h-3.5" />
+                                Analisar com Gemini IA
+                              </>
+                            )}
+                          </button>
+                          {manualScanError && (
+                            <p className="text-[10px] text-rose-400 font-medium">{manualScanError}</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Feedback output from AI scanner */}
+                  {manualScanResult && (
+                    <div className="p-4 bg-violet-650/10 border border-violet-500/20 rounded-xl space-y-1.5 animate-scale-up">
+                      <span className="text-[10px] font-extrabold text-violet-400 uppercase tracking-wider block">Avaliação do Treinador IA:</span>
+                      <p className="text-xs text-zinc-350 italic leading-relaxed">
+                        "{manualScanResult.feedback}"
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Form fields */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block font-sans">Atividade / Exercício</label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: Corrida, Esteira, Natação..." 
+                      value={manualWorkoutName}
+                      onChange={(e) => setManualWorkoutName(e.target.value)}
+                      className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl focus:border-violet-500 text-xs font-bold text-zinc-200 placeholder-zinc-600 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block font-sans">Duração (Minutos)</label>
+                    <input 
+                      type="number" 
+                      placeholder="Ex: 40" 
+                      value={manualWorkoutDuration}
+                      onChange={(e) => setManualWorkoutDuration(e.target.value)}
+                      className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl focus:border-violet-500 text-xs font-bold text-zinc-200 placeholder-zinc-600 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block font-sans">Calorias Queimadas (kcal)</label>
+                    <input 
+                      type="number" 
+                      placeholder="Ex: 350" 
+                      value={manualWorkoutCalories}
+                      onChange={(e) => setManualWorkoutCalories(e.target.value)}
+                      className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl focus:border-violet-500 text-xs font-bold text-zinc-200 placeholder-zinc-600 outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Submit button */}
+                <button
+                  type="button"
+                  onClick={() => handleLogManualWorkout(manualWorkoutName, Number(manualWorkoutDuration), Number(manualWorkoutCalories))}
+                  disabled={loading || !manualWorkoutName.trim()}
+                  className="w-full py-3.5 bg-gradient-to-r from-violet-600 to-pink-600 hover:scale-[1.01] active:scale-98 text-white font-black rounded-2xl transition duration-150 cursor-pointer disabled:opacity-50 text-xs flex items-center justify-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-white" />
+                  Salvar Treino Personalizado (+100 XP)
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -543,7 +835,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
           {/* Player Header */}
           <div className="flex justify-between items-center pb-4 border-b border-zinc-800">
             <div>
-              <span className="text-xs font-bold text-violet-400 uppercase tracking-widest">{currentDay.dayName} · Calabouço Ativo</span>
+              <span className="text-xs font-bold text-violet-400 uppercase tracking-widest">{currentDay.dayName} · Sessão Ativa</span>
               <h2 className="text-xl font-bold text-white mt-0.5">Executando Treinamento</h2>
             </div>
             <button
@@ -551,7 +843,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
               onClick={() => setIsPlaying(false)}
               className="px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl transition text-xs font-bold cursor-pointer"
             >
-              Abandonar Calabouço
+              Cancelar Treino
             </button>
           </div>
 
@@ -651,7 +943,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
           {/* Global Progress Bar */}
           <div className="space-y-1.5 pt-4">
             <div className="flex justify-between items-center text-xs">
-              <span className="font-bold text-zinc-500">Progresso Geral das Quests</span>
+              <span className="font-bold text-zinc-500">Progresso Geral do Treino</span>
               <span className="font-bold text-violet-400">
                 {Math.round((completedExercises.length / currentDay.exercises.length) * 100)}%
               </span>

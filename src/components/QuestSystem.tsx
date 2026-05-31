@@ -46,7 +46,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
       
       const updatedQuest: Quest = {
         ...quest,
-        progress: Math.max(0, Math.min(updatedProgress, quest.target)),
+        progress: Math.max(0, updatedProgress),
         completed: isNowCompleted,
         completedDate: isNowCompleted ? new Date().toISOString() : undefined
       };
@@ -219,7 +219,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
   return (
     <div className="max-w-4xl mx-auto space-y-8 p-4">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-extrabold tracking-tight">Mural de Quests</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight">Mural de Metas</h1>
         <p className="text-zinc-400">Complete seus hábitos diários e registre exercícios para ganhar XP e subir de nível.</p>
       </div>
 
@@ -356,7 +356,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-violet-400" />
-                Quests Diárias
+                Metas Diárias
               </h2>
               <span className="text-xs font-semibold px-2.5 py-0.5 bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full">
                 Reseta Diariamente
@@ -410,7 +410,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-amber-400" />
-                Quests Semanais
+                Metas Semanais
               </h2>
               <span className="text-xs font-semibold px-2.5 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
                 Reseta Domingo

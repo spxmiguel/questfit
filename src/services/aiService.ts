@@ -22,12 +22,12 @@ export const setStoredGroqKey = (key: string): void => {
 
 // System Prompt for AI Coach
 const getSystemPrompt = (memory: UserMemory, todayLog?: ProgressLog): string => {
-  return `Você é o QuestFit Coach, um personal trainer, guia de nutrição e mestre de RPG fitness com inteligência artificial.
-Seu objetivo é transformar a rotina de exercícios, hábitos saudáveis e nutrição do usuário em um RPG de progressão na vida real.
-O usuário é o personagem principal, e cada atividade física ou hábito saudável gera XP para subir de nível.
+  return `Você é o QuestFit Coach, um personal trainer e guia de nutrição com inteligência artificial.
+Seu objetivo é ajudar o usuário a transformar sua rotina de exercícios, hábitos saudáveis e nutrição através de uma jornada gamificada de progressão na vida real.
+Cada atividade física ou hábito saudável gera XP para subir de nível e acompanhar a evolução.
 
 Diretrizes de Comportamento:
-1. Sempre responda em português do Brasil (pt-BR). Seja encorajador, motivador e fale como um treinador profissional, mas com tom de mestre de RPG (mencione quests, XP, leveis e chefões/metas).
+1. Sempre responda em português do Brasil (pt-BR). Seja encorajador, motivador e fale como um treinador profissional e amigável (mencione metas, progresso, nível e evolução).
 2. Não faça questionários gigantescos na entrada. Faça perguntas de forma natural e conversacional durante o bate-papo para construir o perfil dele de forma gradual.
 3. Se o usuário mencionar dores (como dor no joelho ou lombar), evite exercícios de alto impacto (corrida, saltos) e recomende exercícios de baixo impacto (caminhada, ciclismo).
 4. Regra Crítica de Segurança: Você não é médico. Nunca diagnostique doenças ou prescreva medicamentos. Se o usuário relatar sintomas graves, recomende orientação de um médico.
@@ -112,9 +112,9 @@ const getMockResponse = (
   let logUpdate: Partial<ProgressLog> | null = null;
 
   if (msg.includes('olá') || msg.includes('oi') || msg.includes('eae')) {
-    text = `Saudações, herói! Sou o QuestFit Coach, seu guia nessa jornada fitness RPG. ⚔️\n\nQual é o seu principal objetivo hoje? Queremos focar em perder peso, ganhar músculos ou melhorar o fôlego? Diga-me e começaremos a moldar suas missões!`;
+    text = `Saudações! Sou o QuestFit Coach, seu guia nessa jornada fitness. 🏋️‍♂️\n\nQual é o seu principal objetivo hoje? Focar em perder peso, ganhar músculos ou melhorar o fôlego? Diga-me e começaremos a moldar suas metas!`;
   } else if (msg.includes('perder peso') || msg.includes('emagrecer') || msg.includes('perder kg') || msg.includes('gordo')) {
-    text = `Excelente meta! A jornada de perda de peso é cheia de batalhas de consistência, mas com recompensas lendárias. 🏃‍♂️💨\n\nPara ajustar sua planilha, você prefere treinar em casa (usando o peso do corpo) ou ir para uma academia?`;
+    text = `Excelente meta! A jornada de perda de peso exige consistência, mas os resultados valem a pena. 🏃‍♂️💨\n\nPara ajustar sua planilha, você prefere treinar em casa (usando o peso do corpo) ou ir para uma academia?`;
     memoryUpdate = {
       goals: {
         focusArea: 'weightLoss',
@@ -122,7 +122,7 @@ const getMockResponse = (
       }
     };
   } else if (msg.includes('casa') || msg.includes('em casa')) {
-    text = `Treinar em casa é fantástico! Economiza tempo e dá muita flexibilidade. Suas missões diárias envolverão calistenia e exercícios usando o próprio peso corporal. 🏡\n\nVocê tem algum equipamento em casa (halteres, elásticos) ou vai treinar apenas com o peso do corpo? E me diga: sente alguma dor física ou tem limitações, como no joelho ou na lombar?`;
+    text = `Treinar em casa é fantástico! Economiza tempo e dá muita flexibilidade. Seus treinos envolverão calistenia e exercícios usando o próprio peso corporal. 🏡\n\nVocê tem algum equipamento em casa (halteres, elásticos) ou vai treinar apenas com o peso do corpo? E me diga: sente alguma dor física ou tem limitações, como no joelho ou na lombar?`;
     memoryUpdate = {
       preferences: {
         location: 'home',
@@ -130,7 +130,7 @@ const getMockResponse = (
       }
     };
   } else if (msg.includes('academia') || msg.includes('gym')) {
-    text = `Academia selecionada! O calabouço de ferro reserva grandes ganhos de força. 🏋️‍♂️\n\nSuas missões envolverão pesos livres e aparelhos. Quantos minutos você tem disponíveis por dia para treinar? E possui alguma restrição médica ou dor física?`;
+    text = `Academia selecionada! Excelente para ganhos de força e hipertrofia. 🏋️‍♂️\n\nSeus treinos envolverão pesos livres e aparelhos. Quantos minutos você tem disponíveis por dia para treinar? E possui alguma restrição médica ou dor física?`;
     memoryUpdate = {
       preferences: {
         location: 'gym',
@@ -464,7 +464,7 @@ export const regenerateMealSuggestion = async (
   const genAI = new GoogleGenerativeAI(geminiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const prompt = `Você é um nutricionista esportivo especializado em RPG.
+  const prompt = `Você é um nutricionista esportivo especializado.
 O usuário está seguindo uma dieta de tipo: ${dietType} com o objetivo principal de: ${focus}.
 Ele recebeu a seguinte sugestão de refeição para o "${mealName}":
 "${currentDesc}"
@@ -481,5 +481,84 @@ Importante: Forneça como resposta APENAS a descrição curta da nova refeição
   } catch (error) {
     console.error('Gemini meal regeneration failed:', error);
     throw new Error('Falha ao gerar nova recomendação de refeição via IA.');
+  }
+};
+
+export interface WorkoutAnalysisResult {
+  workoutName: string;
+  durationMin: number;
+  caloriesBurned: number;
+  feedback: string;
+}
+
+export const analyzeWorkoutPhoto = async (file: File): Promise<WorkoutAnalysisResult> => {
+  const geminiKey = getStoredGeminiKey();
+  
+  if (!geminiKey) {
+    // Return simulated result based on file name or type
+    await new Promise((resolve) => setTimeout(resolve, 2000)); // Simulate delay
+    
+    return {
+      workoutName: "Corrida na Esteira",
+      durationMin: 40,
+      caloriesBurned: 320,
+      feedback: "Excelente treino aeróbico! Completar 40 minutos correndo ajuda muito no condicionamento físico geral. Ótimo trabalho!"
+    };
+  }
+
+  // Create GoogleGenerativeAI client
+  const genAI = new GoogleGenerativeAI(geminiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  // Convert File to Gemini part format
+  const fileToPart = async (file: File): Promise<{ inlineData: { data: string, mimeType: string } }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        resolve({
+          inlineData: {
+            data: base64Data,
+            mimeType: file.type
+          },
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const imagePart = await fileToPart(file);
+  const prompt = `Analise esta foto de um resumo de atividade física (geralmente uma foto de Apple Watch, relógio esportivo Garmin ou painel de esteira).
+Identifique o nome/tipo do treino, a duração total em minutos e o gasto calórico aproximado (kcal).
+Além disso, faça uma avaliação curta (1 ou 2 frases) analisando se o treino foi bom e dando um feedback de incentivo.
+Responda APENAS com um objeto JSON válido, sem crases, markdown ou qualquer texto extra. O formato do JSON DEVE ser exatamente este:
+{
+  "workoutName": "Tipo de Treino (ex: Caminhada, Corrida, Ciclismo, etc.)",
+  "durationMin": 30,
+  "caloriesBurned": 250,
+  "feedback": "Seu feedback motivador em português aqui."
+}`;
+
+  try {
+    const result = await model.generateContent([prompt, imagePart]);
+    const responseText = result.response.text().trim();
+    
+    // Attempt parsing. Sometimes LLMs output markdown wraps like \`\`\`json { ... } \`\`\`
+    const cleanJson = responseText
+      .replace(/^```json\s*/i, '')
+      .replace(/```\s*$/, '')
+      .trim();
+
+    const parsed = JSON.parse(cleanJson);
+    return {
+      workoutName: parsed.workoutName || "Treino Personalizado",
+      durationMin: Number(parsed.durationMin) || 0,
+      caloriesBurned: Number(parsed.caloriesBurned) || 0,
+      feedback: parsed.feedback || "Excelente treino, continue com esse ritmo constante!"
+    };
+  } catch (err: any) {
+    console.error('Error analyzing workout image with Gemini:', err);
+    throw new Error('Falha ao analisar foto de treino. Verifique se a sua chave API da Gemini nas Configurações é válida.');
   }
 };

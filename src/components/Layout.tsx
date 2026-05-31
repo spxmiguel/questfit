@@ -43,12 +43,12 @@ export default function Layout({
   
   const menuItems = [
     { id: 'dashboard', label: 'Painel', icon: Home },
-    { id: 'quests', label: 'Quests', icon: Compass },
+    { id: 'quests', label: 'Metas', icon: Compass },
     { id: 'workouts', label: 'Treinos', icon: Dumbbell },
     { id: 'nutrition', label: 'Nutrição', icon: Carrot },
     { id: 'chat', label: 'Coach IA', icon: MessageSquare },
     { id: 'analytics', label: 'Evolução', icon: LineChart },
-    { id: 'rpg', label: 'Ascensão', icon: Trophy },
+    { id: 'rpg', label: 'Conquistas', icon: Trophy },
     { id: 'settings', label: 'Ajustes', icon: SettingsIcon }
   ];
 
@@ -181,7 +181,7 @@ export default function Layout({
               </div>
 
               <div className="space-y-2">
-                <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">Sua alma evoluiu!</span>
+                <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">Novo nível alcançado!</span>
                 <h2 className="text-4xl font-black text-white leading-tight">Nível {levelUpData.level}</h2>
                 <p className="text-sm text-zinc-400">Novo título desbloqueado: <strong className="text-violet-400 font-semibold">{levelUpData.title}</strong></p>
               </div>

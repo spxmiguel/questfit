@@ -283,10 +283,10 @@ function App() {
             <Dumbbell className="w-8 h-8" />
           </div>
           <h2 className="text-2xl font-extrabold bg-gradient-to-r from-white to-violet-400 bg-clip-text text-transparent">
-            Invocando Acesso Mágico
+            Confirmando Acesso
           </h2>
           <p className="text-sm text-zinc-400 leading-relaxed">
-            Confirmando seu portal de login e preparando sua ficha de RPG. Por favor, aguarde um instante...
+            Confirmando seu login e preparando seus treinos. Por favor, aguarde um instante...
           </p>
         </div>
       </div>
@@ -331,7 +331,7 @@ function App() {
           <div className="animate-spin p-3 rounded-2xl bg-gradient-to-tr from-violet-600 to-pink-500 text-white">
             <Dumbbell className="w-8 h-8" />
           </div>
-          <p className="text-sm font-semibold tracking-wider uppercase text-zinc-500">Conectando à Guilda...</p>
+          <p className="text-sm font-semibold tracking-wider uppercase text-zinc-500">Conectando ao QuestFit...</p>
         </div>
       </div>
     );

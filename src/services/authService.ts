@@ -301,8 +301,8 @@ export const loginWithGoogle = async (): Promise<UserSession> => {
     // Mock Google login
     const session: UserSession = {
       uid: 'mock_google_user_123',
-      email: 'heroi@google.com',
-      displayName: 'Herói do Google'
+      email: 'usuario@google.com',
+      displayName: 'Usuário do Google'
     };
     localStorage.setItem(MOCK_USER_KEY, JSON.stringify(session));
     notifyListeners(session);

@@ -133,7 +133,7 @@ export const getDefaultAchievements = (): Achievement[] => {
     },
     {
       id: 'ach-level-10',
-      title: 'Ascensão do Herói',
+      title: 'Evolução Constante',
       description: 'Alcance o Nível 10 no QuestFit.',
       unlocked: false,
       icon: 'Award'

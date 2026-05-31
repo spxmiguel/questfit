@@ -25,22 +25,22 @@ export default function RPGProgression({ userProfile, achievements }: Progressio
     }
   };
 
-  // Define RPG tiers
+  // Define progression tiers
   const tiers = [
-    { title: 'Iniciante', levelRange: 'Lv. 1 - 4', desc: 'Começando a jornada RPG fitness, descobrindo novos hábitos.' },
-    { title: 'Escudeiro', levelRange: 'Lv. 5 - 9', desc: 'Mantendo consistência básica, preparando sua força.' },
-    { title: 'Aventureiro', levelRange: 'Lv. 10 - 14', desc: 'Explorando novas rotinas de treinos e alimentação saudável.' },
-    { title: 'Guerreiro', levelRange: 'Lv. 15 - 24', desc: 'Alta disciplina. O ferro se tornou seu aliado diário.' },
-    { title: 'Campeão Elite', levelRange: 'Lv. 25 - 39', desc: 'Foco impecável. Inspirando outros personagens na guilda.' },
-    { title: 'Mestre da Disciplina', levelRange: 'Lv. 40 - 59', desc: 'Dedicação mental e física lendária. O hábito é sua armadura.' },
-    { title: 'Lenda do QuestFit', levelRange: 'Lv. 60+', desc: 'Ascensão suprema do herói. Status físico e mental incomparável.' }
+    { title: 'Iniciante', levelRange: 'Lv. 1 - 4', desc: 'Começando a jornada de treinos, descobrindo novos hábitos.' },
+    { title: 'Consistente', levelRange: 'Lv. 5 - 9', desc: 'Mantendo consistência básica, desenvolvendo sua força.' },
+    { title: 'Dedicado', levelRange: 'Lv. 10 - 14', desc: 'Explorando novas rotinas de treinos e alimentação saudável.' },
+    { title: 'Atleta', levelRange: 'Lv. 15 - 24', desc: 'Alta disciplina. O treino se tornou seu aliado diário.' },
+    { title: 'Elite', levelRange: 'Lv. 25 - 39', desc: 'Foco impecável. Inspirando outros membros a manter o foco.' },
+    { title: 'Mestre da Disciplina', levelRange: 'Lv. 40 - 59', desc: 'Dedicação mental e física extraordinária. O hábito é sua força.' },
+    { title: 'Lenda do QuestFit', levelRange: 'Lv. 60+', desc: 'Evolução suprema do seu condicionamento. Status físico e mental incomparável.' }
   ];
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 p-4 animate-fade-in">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-extrabold tracking-tight">Caminho da Ascensão</h1>
-        <p className="text-zinc-400">Acompanhe suas conquistas desbloqueadas e os títulos da sua jornada de herói.</p>
+        <h1 className="text-3xl font-extrabold tracking-tight">Conquistas e Títulos</h1>
+        <p className="text-zinc-400">Acompanhe suas conquistas desbloqueadas e os títulos conquistados em sua jornada fitness.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

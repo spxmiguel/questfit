@@ -62,13 +62,13 @@ export default function Dashboard({ userProfile, userMemory, quests, onNavigateT
       });
     } else if (focus === 'weightLoss') {
       list.push({
-        title: '🍎 Quest de Deficit Calórico',
+        title: '🍎 Meta de Déficit Calórico',
         desc: 'Para queimar gordura, prefira alimentos de alta saciedade: Filé de frango grelhado, mix de saladas verdes e batata doce assada (porções controladas).',
         type: 'nutrition'
       });
     } else {
       list.push({
-        title: '🍳 Alimento do Herói',
+        title: '🍳 Alimentação Saudável',
         desc: 'Consuma fontes limpas de carboidratos e proteínas em cada refeição. Hidratação abundante é fundamental!',
         type: 'nutrition'
       });
