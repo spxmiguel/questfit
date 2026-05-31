@@ -44,9 +44,13 @@ export default function Auth({ onSuccess }: AuthProps) {
   };
 
   const handleGoogleLogin = () => {
+    // WebKit/Safari requirement: call popup opening method as the absolute first statement on click
+    const loginPromise = loginWithGoogle();
+    
     setError('');
     setLoading(true);
-    loginWithGoogle()
+
+    loginPromise
       .then(() => {
         onSuccess();
       })
