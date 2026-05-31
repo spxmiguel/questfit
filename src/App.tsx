@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react';
-import { subscribeToAuth, logoutUser, UserSession } from './services/authService';
+import { 
+  subscribeToAuth, 
+  logoutUser, 
+  UserSession,
+  isEmailSignInLink,
+  handleIncomingEmailLink
+} from './services/authService';
 import { 
   getUserProfile, 
   getUserMemory, 
@@ -27,6 +33,8 @@ function App() {
   const [session, setSession] = useState<UserSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
+  const [emailLinkLoggingIn, setEmailLinkLoggingIn] = useState(false);
+  const [emailLinkError, setEmailLinkError] = useState<string | null>(null);
 
   // App States
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -43,8 +51,27 @@ function App() {
     achievements: Achievement[];
   } | null>(null);
 
-  // Subscribe to Auth status changes
+  // Subscribe to Auth status changes & handle email links
   useEffect(() => {
+    const handleAuth = async () => {
+      if (isEmailSignInLink()) {
+        setEmailLinkLoggingIn(true);
+        try {
+          const user = await handleIncomingEmailLink();
+          if (user) {
+            console.log('Logged in successfully via email link:', user);
+          }
+        } catch (err: any) {
+          console.error('Email link authentication failed:', err);
+          setEmailLinkError(err.message || 'Falha ao autenticar com o link de e-mail.');
+        } finally {
+          setEmailLinkLoggingIn(false);
+        }
+      }
+    };
+
+    handleAuth();
+
     const unsub = subscribeToAuth((user) => {
       setSession(user);
       setAuthLoading(false);
@@ -165,6 +192,55 @@ function App() {
       setActiveTab('dashboard');
     }
   };
+
+  // Email Link Loading and Error states
+  if (emailLinkLoggingIn) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-white p-4">
+        <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+          <div className="animate-spin p-4 rounded-3xl bg-gradient-to-tr from-violet-600 to-pink-500 text-white shadow-lg shadow-violet-600/20">
+            <Dumbbell className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-extrabold bg-gradient-to-r from-white to-violet-400 bg-clip-text text-transparent">
+            Invocando Acesso Mágico
+          </h2>
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            Confirmando seu portal de login e preparando sua ficha de RPG. Por favor, aguarde um instante...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (emailLinkError) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-white p-4">
+        <div className="glass-panel p-8 rounded-[32px] max-w-md w-full text-center space-y-6">
+          <div className="inline-flex p-4 rounded-3xl bg-rose-500/20 text-rose-400 border border-rose-500/20">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-white">Falha no Portal de Login</h2>
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            Não conseguimos validar seu link de login sem senha. Ele pode ter expirado ou já ter sido utilizado.
+          </p>
+          <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-2xl font-mono text-left break-all">
+            {emailLinkError}
+          </div>
+          <button
+            onClick={() => {
+              setEmailLinkError(null);
+              window.location.href = window.location.origin + window.location.pathname;
+            }}
+            className="w-full py-3.5 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-2xl transition duration-200 cursor-pointer shadow-lg shadow-violet-600/20 text-sm"
+          >
+            Voltar para o Início
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Auth loading screen
   if (authLoading) {

@@ -5,10 +5,11 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
-  User as FirebaseUser
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink
 } from 'firebase/auth';
 import { auth, isFirebaseEnabled } from './firebase';
-import { UserProfile } from '../types';
 
 export interface UserSession {
   uid: string;
@@ -152,4 +153,81 @@ export const logoutUser = async (): Promise<void> => {
     localStorage.removeItem(MOCK_USER_KEY);
     notifyListeners(null);
   }
+};
+
+export const sendPasswordlessLink = async (email: string): Promise<void> => {
+  if (isFirebaseEnabled && auth) {
+    const actionCodeSettings = {
+      // Dynamic base URL for localhost or spxmiguel.github.io
+      url: window.location.origin + window.location.pathname,
+      handleCodeInApp: true,
+    };
+    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+    window.localStorage.setItem('emailForSignIn', email);
+  } else {
+    // Mock Mode
+    console.log(`[Mock] Link de login enviado para ${email}`);
+    window.localStorage.setItem('emailForSignIn', email);
+    const mockLink = `${window.location.origin}${window.location.pathname}?mode=signIn&email=${encodeURIComponent(email)}&mock=true`;
+    console.log(`[Mock] Clique no link abaixo para simular a conclusão do login:\n${mockLink}`);
+  }
+};
+
+export const isEmailSignInLink = (): boolean => {
+  if (isFirebaseEnabled && auth) {
+    return isSignInWithEmailLink(auth, window.location.href);
+  } else {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('mode') === 'signIn' && !!params.get('email');
+  }
+};
+
+export const handleIncomingEmailLink = async (): Promise<UserSession | null> => {
+  if (isFirebaseEnabled && auth) {
+    if (isSignInWithEmailLink(auth, window.location.href)) {
+      let email = window.localStorage.getItem('emailForSignIn');
+      if (!email) {
+        email = window.prompt('Por favor, informe seu e-mail para confirmação do login:');
+      }
+      if (!email) {
+        throw new Error('E-mail de confirmação é obrigatório para concluir o login.');
+      }
+      const cred = await signInWithEmailLink(auth, email, window.location.href);
+      window.localStorage.removeItem('emailForSignIn');
+      
+      const session: UserSession = {
+        uid: cred.user.uid,
+        email: cred.user.email || '',
+        displayName: cred.user.displayName || 'Guerreiro'
+      };
+      notifyListeners(session);
+      
+      // Clear query params so it doesn't trigger auth again on page reload
+      if (window.history && window.history.replaceState) {
+        const cleanUrl = window.location.href.split('?')[0];
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+      return session;
+    }
+  } else {
+    // Mock Mode
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'signIn' && params.get('email')) {
+      const email = params.get('email') || '';
+      const session: UserSession = {
+        uid: `mock_${email.replace(/[^a-zA-Z0-9]/g, '')}`,
+        email: email,
+        displayName: email.split('@')[0]
+      };
+      localStorage.setItem(MOCK_USER_KEY, JSON.stringify(session));
+      notifyListeners(session);
+      
+      if (window.history && window.history.replaceState) {
+        const cleanUrl = window.location.href.split('?')[0];
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+      return session;
+    }
+  }
+  return null;
 };
