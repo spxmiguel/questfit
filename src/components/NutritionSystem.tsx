@@ -4,6 +4,7 @@ import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, 
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests } from '../services/dbService';
 import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey } from '../services/aiService';
+import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
 import { calculateBMR, calculateTDEE } from '../utils/healthMath';
 
 interface NutritionSystemProps {
@@ -117,58 +118,106 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
     return list;
   };
 
-  const handleLogIntake = async (e: React.FormEvent) => {
+  const handleLogIntake = (e: React.FormEvent) => {
     e.preventDefault();
     const cals = parseInt(calorieInput);
     const prot = parseInt(proteinInput);
     if (isNaN(cals) || cals <= 0 || isNaN(prot) || prot <= 0) return;
 
-    setLoading(true);
     try {
-      const log = await getProgressLogForDate(userProfile.uid, todayStr);
-      
-      const newCals = (log.caloriesConsumed || 0) + cals;
-      const newProt = (log.proteinConsumedG || 0) + prot;
-
-      const updatedLog: ProgressLog = {
-        ...log,
-        caloriesConsumed: newCals,
-        proteinConsumedG: newProt
+      const currentLog = todayLog || {
+        id: `${todayStr}_log`,
+        date: todayStr,
+        waterIntakeMl: 0,
+        workoutCompleted: false,
+        stepsCompleted: 0,
+        xpEarned: 0
       };
 
-      await saveProgressLog(userProfile.uid, updatedLog);
+      const updatedLog: ProgressLog = {
+        ...currentLog,
+        caloriesConsumed: (currentLog.caloriesConsumed || 0) + cals,
+        proteinConsumedG: (currentLog.proteinConsumedG || 0) + prot
+      };
+
+      // Update UI state immediately
       setTodayLog(updatedLog);
 
-      // Award XP for logging nutrition details (+25 XP)
-      const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
+      // Award XP locally (+25 XP)
+      const updatedXp = userProfile.xp + 25;
+      const levelCheck = checkLevelUp(userProfile.level, updatedXp);
+      const localUpdatedProfile: UserProfile = {
+        ...userProfile,
+        level: levelCheck.newLevel,
+        xp: levelCheck.remainingXp,
+        xpNeededForNextLevel: levelCheck.xpNeeded,
+        title: getTitleForLevel(levelCheck.newLevel)
+      };
 
       setCalorieInput('');
       setProteinInput('');
-      onNutritionLogged(res.profile, res.unlockedAchievements);
+      onNutritionLogged(localUpdatedProfile, []);
+
+      // Save in background (async, non-blocking)
+      (async () => {
+        try {
+          const log = await getProgressLogForDate(userProfile.uid, todayStr);
+          const finalLog: ProgressLog = {
+            ...log,
+            caloriesConsumed: (log.caloriesConsumed || 0) + cals,
+            proteinConsumedG: (log.proteinConsumedG || 0) + prot
+          };
+          await saveProgressLog(userProfile.uid, finalLog);
+          const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
+          
+          // Re-update if anything changed on server (e.g. achievements)
+          onNutritionLogged(res.profile, res.unlockedAchievements);
+        } catch (err) {
+          console.error('Background log intake failed:', err);
+        }
+      })();
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to log intake (optimistic):', err);
     }
   };
 
-  const handleClearTodayNutrition = async () => {
+  const handleClearTodayNutrition = () => {
     if (window.confirm('Tem certeza de que deseja zerar seu consumo de calorias e proteínas de hoje? Isso apagará seus registros para o dia atual.')) {
-      setLoading(true);
       try {
-        const log = await getProgressLogForDate(userProfile.uid, todayStr);
+        const currentLog = todayLog || {
+          id: `${todayStr}_log`,
+          date: todayStr,
+          waterIntakeMl: 0,
+          workoutCompleted: false,
+          stepsCompleted: 0,
+          xpEarned: 0
+        };
+
         const updatedLog: ProgressLog = {
-          ...log,
+          ...currentLog,
           caloriesConsumed: 0,
           proteinConsumedG: 0
         };
-        await saveProgressLog(userProfile.uid, updatedLog);
+
         setTodayLog(updatedLog);
         onNutritionLogged(userProfile, []);
+
+        // Save in background (async, non-blocking)
+        (async () => {
+          try {
+            const log = await getProgressLogForDate(userProfile.uid, todayStr);
+            const finalLog: ProgressLog = {
+              ...log,
+              caloriesConsumed: 0,
+              proteinConsumedG: 0
+            };
+            await saveProgressLog(userProfile.uid, finalLog);
+          } catch (err) {
+            console.error('Background clear nutrition failed:', err);
+          }
+        })();
       } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
+        console.error('Failed to clear nutrition (optimistic):', err);
       }
     }
   };
@@ -206,35 +255,60 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
     }
   };
 
-  const handleLogScanResult = async () => {
+  const handleLogScanResult = () => {
     if (!scanResult) return;
-    setLoading(true);
     try {
-      const log = await getProgressLogForDate(userProfile.uid, todayStr);
-      
-      const newCals = (log.caloriesConsumed || 0) + scanResult.calories;
-      const newProt = (log.proteinConsumedG || 0) + scanResult.protein;
-
-      const updatedLog: ProgressLog = {
-        ...log,
-        caloriesConsumed: newCals,
-        proteinConsumedG: newProt
+      const currentLog = todayLog || {
+        id: `${todayStr}_log`,
+        date: todayStr,
+        waterIntakeMl: 0,
+        workoutCompleted: false,
+        stepsCompleted: 0,
+        xpEarned: 0
       };
 
-      await saveProgressLog(userProfile.uid, updatedLog);
+      const updatedLog: ProgressLog = {
+        ...currentLog,
+        caloriesConsumed: (currentLog.caloriesConsumed || 0) + scanResult.calories,
+        proteinConsumedG: (currentLog.proteinConsumedG || 0) + scanResult.protein
+      };
+
       setTodayLog(updatedLog);
 
-      const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
+      // Award XP locally (+25 XP)
+      const updatedXp = userProfile.xp + 25;
+      const levelCheck = checkLevelUp(userProfile.level, updatedXp);
+      const localUpdatedProfile: UserProfile = {
+        ...userProfile,
+        level: levelCheck.newLevel,
+        xp: levelCheck.remainingXp,
+        xpNeededForNextLevel: levelCheck.xpNeeded,
+        title: getTitleForLevel(levelCheck.newLevel)
+      };
 
       setPhotoFile(null);
       setPhotoPreview(null);
       setScanResult(null);
-      
-      onNutritionLogged(res.profile, res.unlockedAchievements);
+      onNutritionLogged(localUpdatedProfile, []);
+
+      // Save in background (async, non-blocking)
+      (async () => {
+        try {
+          const log = await getProgressLogForDate(userProfile.uid, todayStr);
+          const finalLog: ProgressLog = {
+            ...log,
+            caloriesConsumed: (log.caloriesConsumed || 0) + scanResult.calories,
+            proteinConsumedG: (log.proteinConsumedG || 0) + scanResult.protein
+          };
+          await saveProgressLog(userProfile.uid, finalLog);
+          const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
+          onNutritionLogged(res.profile, res.unlockedAchievements);
+        } catch (err) {
+          console.error('Background confirm scan failed:', err);
+        }
+      })();
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to confirm scan (optimistic):', err);
     }
   };
 

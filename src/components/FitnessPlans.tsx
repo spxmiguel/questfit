@@ -3,6 +3,7 @@ import { UserProfile, UserMemory } from '../types';
 import { Dumbbell, Calendar, Play, CheckCircle2, ChevronRight, AlertTriangle, ShieldCheck, Clock, Award, RotateCcw, ThumbsDown, ChevronDown, ChevronUp, Video } from 'lucide-react';
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests, saveUserMemory } from '../services/dbService';
+import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
 
 interface FitnessPlansProps {
   userProfile: UserProfile;
@@ -253,51 +254,71 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
     }
   };
 
-  const handleFinishWorkout = async () => {
-    setLoading(true);
+  const handleFinishWorkout = () => {
     try {
-      const res = await awardXp(userProfile.uid, userProfile, 100, 'workout');
-
-      const log = await getProgressLogForDate(userProfile.uid, todayStr);
-      await saveProgressLog(userProfile.uid, {
-        ...log,
-        workoutCompleted: true,
-        xpEarned: log.xpEarned + 100
-      });
-
-      const activeQuests = await getQuests(userProfile.uid);
-      const dailyWorkout = activeQuests.find(q => q.type === 'workout' && q.category === 'daily');
-      
-      if (dailyWorkout && !dailyWorkout.completed) {
-        const updatedQuest = {
-          ...dailyWorkout,
-          progress: 1,
-          completed: true,
-          completedDate: new Date().toISOString()
-        };
-        await saveQuest(userProfile.uid, updatedQuest);
-
-        const weeklyWorkouts = activeQuests.find(q => q.id === 'weekly-workouts');
-        if (weeklyWorkouts && !weeklyWorkouts.completed) {
-          const newWeeklyProgress = weeklyWorkouts.progress + 1;
-          const weeklyCompleted = newWeeklyProgress >= weeklyWorkouts.target;
-          
-          await saveQuest(userProfile.uid, {
-            ...weeklyWorkouts,
-            progress: newWeeklyProgress,
-            completed: weeklyCompleted,
-            completedDate: weeklyCompleted ? new Date().toISOString() : undefined
-          });
-        }
-      }
+      // Calculate local profile updates immediately
+      const updatedXp = userProfile.xp + 100;
+      const levelCheck = checkLevelUp(userProfile.level, updatedXp);
+      const localUpdatedProfile: UserProfile = {
+        ...userProfile,
+        level: levelCheck.newLevel,
+        xp: levelCheck.remainingXp,
+        xpNeededForNextLevel: levelCheck.xpNeeded,
+        title: getTitleForLevel(levelCheck.newLevel)
+      };
 
       setIsPlaying(false);
       setShowSummary(true);
-      onWorkoutCompleted(res.profile, res.unlockedAchievements);
+      
+      // Update UI state immediately
+      onWorkoutCompleted(localUpdatedProfile, []);
+
+      // Background async update
+      (async () => {
+        try {
+          const res = await awardXp(userProfile.uid, userProfile, 100, 'workout');
+
+          const log = await getProgressLogForDate(userProfile.uid, todayStr);
+          await saveProgressLog(userProfile.uid, {
+            ...log,
+            workoutCompleted: true,
+            xpEarned: log.xpEarned + 100
+          });
+
+          const activeQuests = await getQuests(userProfile.uid);
+          const dailyWorkout = activeQuests.find(q => q.type === 'workout' && q.category === 'daily');
+          
+          if (dailyWorkout && !dailyWorkout.completed) {
+            const updatedQuest = {
+              ...dailyWorkout,
+              progress: 1,
+              completed: true,
+              completedDate: new Date().toISOString()
+            };
+            await saveQuest(userProfile.uid, updatedQuest);
+
+            const weeklyWorkouts = activeQuests.find(q => q.id === 'weekly-workouts');
+            if (weeklyWorkouts && !weeklyWorkouts.completed) {
+              const newWeeklyProgress = weeklyWorkouts.progress + 1;
+              const weeklyCompleted = newWeeklyProgress >= weeklyWorkouts.target;
+              
+              await saveQuest(userProfile.uid, {
+                ...weeklyWorkouts,
+                progress: newWeeklyProgress,
+                completed: weeklyCompleted,
+                completedDate: weeklyCompleted ? new Date().toISOString() : undefined
+              });
+            }
+          }
+
+          // Trigger state update with the final profile from server (which includes achievements check)
+          onWorkoutCompleted(res.profile, res.unlockedAchievements);
+        } catch (dbErr) {
+          console.error('Background workout sync failed:', dbErr);
+        }
+      })();
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to finish workout (optimistic):', err);
     }
   };
 
@@ -325,7 +346,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
         lastUpdated: new Date().toISOString()
       };
 
-      await saveUserMemory(userProfile.uid, updatedMemory);
+      saveUserMemory(userProfile.uid, updatedMemory);
       onMemoryUpdate(updatedMemory);
       
       showBannerNotification(`"${exerciseName}" descurtido! O Coach removeu este exercício dos seus treinos futuros.`);

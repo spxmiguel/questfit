@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, UserMemory, ProgressLog } from '../types';
 import { getProgressLogs, saveProgressLog, getProgressLogForDate, saveUserMemory, getQuests, saveQuest } from '../services/dbService';
 import { awardXp } from '../services/rpgService';
+import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar } from 'recharts';
 import { Scale, Calendar, ChevronRight, Activity, TrendingDown, Target, HelpCircle } from 'lucide-react';
 
@@ -22,22 +23,38 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
     getProgressLogs(userProfile.uid).then(setLogs);
   }, [userProfile.uid]);
 
-  const handleLogWeight = async (e: React.FormEvent) => {
+  const handleLogWeight = (e: React.FormEvent) => {
     e.preventDefault();
     const weightVal = parseFloat(weightInput);
     if (isNaN(weightVal) || weightVal <= 0) return;
 
-    setLoading(true);
     try {
-      // Save weight in today's log
-      const log = await getProgressLogForDate(userProfile.uid, todayStr);
+      // 1. Calculate local progress log update immediately
+      const existingLog = logs.find(l => l.date === todayStr) || {
+        id: `${todayStr}_log`,
+        date: todayStr,
+        waterIntakeMl: 0,
+        workoutCompleted: false,
+        stepsCompleted: 0,
+        xpEarned: 0
+      };
+      
       const updatedLog: ProgressLog = {
-        ...log,
+        ...existingLog,
         weight: weightVal
       };
-      await saveProgressLog(userProfile.uid, updatedLog);
 
-      // Save current weight in user memory goals
+      // 2. Compute updated logs list
+      const logIdx = logs.findIndex(l => l.date === todayStr);
+      let updatedLogs = [...logs];
+      if (logIdx !== -1) {
+        updatedLogs[logIdx] = updatedLog;
+      } else {
+        updatedLogs.push(updatedLog);
+      }
+      updatedLogs.sort((a, b) => a.date.localeCompare(b.date));
+
+      // 3. Update memory locally
       const updatedMemory: UserMemory = {
         ...userMemory,
         goals: {
@@ -46,60 +63,78 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
         },
         lastUpdated: new Date().toISOString()
       };
-      await saveUserMemory(userProfile.uid, updatedMemory);
 
-      // Recalculate water target (35ml/kg)
-      const newWaterTarget = Math.max(1500, Math.min(Math.round(weightVal * 35), 4500));
-      
-      // Update active water quest target if it exists and is not completed
-      const activeQuests = await getQuests(userProfile.uid);
-      const waterQuestIdx = activeQuests.findIndex(q => q.type === 'water' && q.category === 'daily');
-      if (waterQuestIdx !== -1) {
-        const waterQuest = activeQuests[waterQuestIdx];
-        if (!waterQuest.completed) {
-          waterQuest.target = newWaterTarget;
-          waterQuest.title = `Beber ${(newWaterTarget / 1000).toFixed(1).replace('.0', '')}L de Água`;
-          await saveQuest(userProfile.uid, waterQuest);
-        }
-      }
+      // 4. Calculate local profile updates immediately (+50 XP)
+      const updatedXp = userProfile.xp + 50;
+      const levelCheck = checkLevelUp(userProfile.level, updatedXp);
+      const localUpdatedProfile: UserProfile = {
+        ...userProfile,
+        level: levelCheck.newLevel,
+        xp: levelCheck.remainingXp,
+        xpNeededForNextLevel: levelCheck.xpNeeded,
+        title: getTitleForLevel(levelCheck.newLevel)
+      };
 
-      // Award XP for logging weight (+50 XP)
-      const res = await awardXp(userProfile.uid, userProfile, 50, 'weight');
-
-      // Check weight achievement (if target reached)
-      // E.g., if target exists and weight is <= target
-      const target = userMemory.goals.targetWeightKg;
-      
-      // Update local logs list
-      const updatedLogs = await getProgressLogs(userProfile.uid);
+      // 5. Update local component state immediately
       setLogs(updatedLogs);
       setWeightInput('');
 
-      onWeightLogged(res.profile, updatedMemory, res.unlockedAchievements);
+      // 6. Propagate to parent state immediately
+      onWeightLogged(localUpdatedProfile, updatedMemory, []);
+
+      // 7. Fire off background saves (async, non-blocking)
+      (async () => {
+        try {
+          await saveProgressLog(userProfile.uid, updatedLog);
+          await saveUserMemory(userProfile.uid, updatedMemory);
+
+          // Recalculate water target (35ml/kg) and save quest in background
+          const newWaterTarget = Math.max(1500, Math.min(Math.round(weightVal * 35), 4500));
+          const activeQuests = await getQuests(userProfile.uid);
+          const waterQuestIdx = activeQuests.findIndex(q => q.type === 'water' && q.category === 'daily');
+          if (waterQuestIdx !== -1) {
+            const waterQuest = activeQuests[waterQuestIdx];
+            if (!waterQuest.completed) {
+              waterQuest.target = newWaterTarget;
+              waterQuest.title = `Beber ${(newWaterTarget / 1000).toFixed(1).replace('.0', '')}L de Água`;
+              await saveQuest(userProfile.uid, waterQuest);
+            }
+          }
+
+          // Award XP on database
+          const res = await awardXp(userProfile.uid, userProfile, 50, 'weight');
+          onWeightLogged(res.profile, updatedMemory, res.unlockedAchievements);
+        } catch (err) {
+          console.error('Background log weight failed:', err);
+        }
+      })();
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to log weight (optimistic):', err);
     }
   };
 
-  const handleRemoveTodayWeight = async () => {
-    setLoading(true);
+  const handleRemoveTodayWeight = () => {
     try {
-      // 1. Remove weight from today's log
-      const log = await getProgressLogForDate(userProfile.uid, todayStr);
-      const updatedLog = { ...log };
-      delete updatedLog.weight;
-      await saveProgressLog(userProfile.uid, updatedLog);
-
-      // 2. Find previous weight to restore in memory
-      const previousLogsWithWeight = logs
-        .filter(l => l.date !== todayStr && l.weight !== undefined)
-        .sort((a, b) => b.date.localeCompare(a.date)); // sorted descending
+      // 1. Remove weight locally from logs
+      const logIdx = logs.findIndex(l => l.date === todayStr);
+      let updatedLogs = [...logs];
+      let todayLogCopy = logs.find(l => l.date === todayStr);
       
+      if (todayLogCopy) {
+        const updatedToday = { ...todayLogCopy };
+        delete updatedToday.weight;
+        if (logIdx !== -1) {
+          updatedLogs[logIdx] = updatedToday;
+        }
+      }
+
+      // 2. Find previous weight to restore
+      const previousLogsWithWeight = updatedLogs
+        .filter(l => l.date !== todayStr && l.weight !== undefined)
+        .sort((a, b) => b.date.localeCompare(a.date));
       const prevWeight = previousLogsWithWeight.length > 0 ? previousLogsWithWeight[0].weight : undefined;
 
-      // 3. Update memory
+      // 3. Update memory locally
       const updatedMemory: UserMemory = {
         ...userMemory,
         goals: {
@@ -108,18 +143,27 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
         },
         lastUpdated: new Date().toISOString()
       };
-      await saveUserMemory(userProfile.uid, updatedMemory);
 
-      // 4. Update local state
-      const updatedLogs = await getProgressLogs(userProfile.uid);
+      // 4. Update local state immediately
       setLogs(updatedLogs);
 
-      // 5. Notify parent (so it propagates)
+      // 5. Notify parent immediately
       onWeightLogged(userProfile, updatedMemory, []);
+
+      // 6. Run saves in background (async, non-blocking)
+      (async () => {
+        try {
+          const log = await getProgressLogForDate(userProfile.uid, todayStr);
+          const updatedLog = { ...log };
+          delete updatedLog.weight;
+          await saveProgressLog(userProfile.uid, updatedLog);
+          await saveUserMemory(userProfile.uid, updatedMemory);
+        } catch (err) {
+          console.error('Background remove weight failed:', err);
+        }
+      })();
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to remove weight (optimistic):', err);
     }
   };
 
