@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getStoredGeminiKey, setStoredGeminiKey, getStoredGroqKey, setStoredGroqKey } from '../services/aiService';
 import { isFirebaseEnabled } from '../services/firebase';
-import { saveUserMemory, saveProgressLog, getProgressLogForDate } from '../services/dbService';
+import { saveUserMemory, saveProgressLog, getProgressLogForDate, deleteAllUserData } from '../services/dbService';
 import { awardXp } from '../services/rpgService';
 import { calculateBMR, calculateTDEE, calculateBMI } from '../utils/healthMath';
 import { getLocalDateString } from '../utils/dateUtils';
@@ -167,12 +167,20 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
     }
   };
 
-  const handleResetData = () => {
-    if (window.confirm('Tem certeza de que deseja redefinir toda a sua ficha de personagem? Isso apagará seu nível, histórico de bate-papo, peso e conquistas do navegador.')) {
-      const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith('questfit_'));
-      keysToRemove.forEach(k => localStorage.removeItem(k));
-      window.location.reload();
+  const handleResetData = async () => {
+    const confirmed = window.confirm(
+      'Tem certeza de que deseja redefinir TODOS os seus dados?\n\n' +
+      'Isso apagará permanentemente seu nível, XP, histórico de treinos, peso, conquistas e metas — ' +
+      'inclusive os dados salvos na nuvem (Firebase).\n\n' +
+      'Esta ação NÃO pode ser desfeita.'
+    );
+    if (!confirmed) return;
+    try {
+      await deleteAllUserData(userProfile.uid);
+    } catch (err) {
+      console.error('Erro ao apagar dados na nuvem:', err);
     }
+    window.location.reload();
   };
 
   const physicalProfile = {

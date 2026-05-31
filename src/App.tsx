@@ -479,7 +479,19 @@ function App() {
           <FitnessPlans
             userProfile={userProfile}
             userMemory={userMemory}
-            onWorkoutCompleted={(profile, achs) => handleQuestUpdate(quests, profile, achs)}
+            onWorkoutCompleted={(profile, achs) => {
+              // Read fresh quests from localStorage — FitnessPlans background save updates them
+              // before calling this callback on the second (DB-confirmed) call.
+              const cachedRaw = localStorage.getItem(`questfit_quests_${session!.uid}`);
+              const freshQuests: Quest[] = cachedRaw ? JSON.parse(cachedRaw) : quests;
+              // Optimistically mark daily workout quest as complete for immediate UI feedback
+              const updatedQuests = freshQuests.map((q: Quest) =>
+                q.type === 'workout' && q.category === 'daily' && !q.completed
+                  ? { ...q, progress: 1, completed: true, completedDate: new Date().toISOString() }
+                  : q
+              );
+              handleQuestUpdate(updatedQuests, profile, achs);
+            }}
             onMemoryUpdate={handleMemoryUpdate}
           />
         );
@@ -488,7 +500,12 @@ function App() {
           <NutritionSystem
             userProfile={userProfile}
             userMemory={userMemory}
-            onNutritionLogged={(profile, achs) => handleQuestUpdate(quests, profile, achs)}
+            onNutritionLogged={(profile, achs) => {
+              // Always read the freshest quest state from localStorage
+              const cachedRaw = localStorage.getItem(`questfit_quests_${session!.uid}`);
+              const freshQuests: Quest[] = cachedRaw ? JSON.parse(cachedRaw) : quests;
+              handleQuestUpdate(freshQuests, profile, achs);
+            }}
           />
         );
       case 'chat':

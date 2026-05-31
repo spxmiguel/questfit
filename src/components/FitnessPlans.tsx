@@ -305,7 +305,10 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
         try {
           const res = await awardXp(userProfile.uid, userProfile, 100, 'workout');
 
+          // Read log BEFORE saving to know if workout was already counted today
+          // (e.g. user may have logged it in QuestSystem earlier, or App.tsx set the quest optimistically)
           const log = await getProgressLogForDate(userProfile.uid, todayStr);
+          const wasAlreadyLogged = log.workoutCompleted;
           await saveProgressLog(userProfile.uid, {
             ...log,
             workoutCompleted: true,
@@ -314,21 +317,23 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
 
           const activeQuests = await getQuests(userProfile.uid);
           const dailyWorkout = activeQuests.find(q => q.type === 'workout' && q.category === 'daily');
-          
-          if (dailyWorkout && !dailyWorkout.completed) {
-            const updatedQuest = {
+
+          // Use wasAlreadyLogged instead of dailyWorkout.completed — the quest may already appear
+          // completed in localStorage because App.tsx optimistically marked it, but the weekly
+          // counter should only increment once per actual new workout.
+          if (dailyWorkout && !wasAlreadyLogged) {
+            await saveQuest(userProfile.uid, {
               ...dailyWorkout,
               progress: 1,
               completed: true,
               completedDate: new Date().toISOString()
-            };
-            await saveQuest(userProfile.uid, updatedQuest);
+            });
 
             const weeklyWorkouts = activeQuests.find(q => q.id === 'weekly-workouts');
             if (weeklyWorkouts && !weeklyWorkouts.completed) {
               const newWeeklyProgress = weeklyWorkouts.progress + 1;
               const weeklyCompleted = newWeeklyProgress >= weeklyWorkouts.target;
-              
+
               await saveQuest(userProfile.uid, {
                 ...weeklyWorkouts,
                 progress: newWeeklyProgress,
@@ -396,6 +401,7 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
           const res = await awardXp(userProfile.uid, userProfile, 100, 'workout');
 
           const log = await getProgressLogForDate(userProfile.uid, todayStr);
+          const wasAlreadyLogged = log.workoutCompleted;
           await saveProgressLog(userProfile.uid, {
             ...log,
             workoutCompleted: true,
@@ -404,21 +410,20 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
 
           const activeQuests = await getQuests(userProfile.uid);
           const dailyWorkout = activeQuests.find(q => q.type === 'workout' && q.category === 'daily');
-          
-          if (dailyWorkout && !dailyWorkout.completed) {
-            const updatedQuest = {
+
+          if (dailyWorkout && !wasAlreadyLogged) {
+            await saveQuest(userProfile.uid, {
               ...dailyWorkout,
               progress: 1,
               completed: true,
               completedDate: new Date().toISOString()
-            };
-            await saveQuest(userProfile.uid, updatedQuest);
+            });
 
             const weeklyWorkouts = activeQuests.find(q => q.id === 'weekly-workouts');
             if (weeklyWorkouts && !weeklyWorkouts.completed) {
               const newWeeklyProgress = weeklyWorkouts.progress + 1;
               const weeklyCompleted = newWeeklyProgress >= weeklyWorkouts.target;
-              
+
               await saveQuest(userProfile.uid, {
                 ...weeklyWorkouts,
                 progress: newWeeklyProgress,

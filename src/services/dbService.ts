@@ -11,7 +11,7 @@ import {
 import { db, isFirebaseEnabled } from './firebase';
 import { UserProfile, UserMemory, Quest, ProgressLog, Achievement, ChatMessage } from '../types';
 import { getDefaultQuests, getDefaultAchievements, getXpNeededForLevel, getTitleForLevel } from '../utils/xpCalc';
-import { getLocalDateString } from '../utils/dateUtils';
+import { getLocalDateString, getMondayISO } from '../utils/dateUtils';
 
 // Helper to check LocalStorage key-value storage
 const getLocal = <T>(key: string): T | null => {
@@ -171,9 +171,17 @@ export const getQuests = async (uid: string): Promise<Quest[]> => {
         const colRef = collection(db, 'users', uid, 'quests');
         getDocs(colRef).then((snap) => {
           if (!snap.empty) {
-            const quests: Quest[] = [];
-            snap.forEach(doc => quests.push(doc.data() as Quest));
-            setLocal(`questfit_quests_${uid}`, quests);
+            const cloudQuests: Quest[] = [];
+            snap.forEach(doc => cloudQuests.push(doc.data() as Quest));
+            // Only accept cloud data when it already has today's daily quests.
+            // If Firestore still holds yesterday's quests (another device hasn't synced yet),
+            // blindly overwriting would wipe today's local progress.
+            const hasCloudTodayDailies = cloudQuests.some(
+              q => q.category === 'daily' && q.id.endsWith(todayStr)
+            );
+            if (hasCloudTodayDailies) {
+              setLocal(`questfit_quests_${uid}`, cloudQuests);
+            }
           }
         }).catch(() => {});
       }
@@ -201,30 +209,54 @@ export const getQuests = async (uid: string): Promise<Quest[]> => {
 };
 
 const checkAndRefreshDailyQuests = async (uid: string, quests: Quest[], todayStr: string, weightKg?: number): Promise<Quest[]> => {
+  const mondayStr = getMondayISO();
+
+  // ── Daily quest check ────────────────────────────────────────────────────────
   const hasDailies = quests.some(q => q.category === 'daily');
   const hasOldDailies = quests.some(q => q.category === 'daily' && !q.id.endsWith(todayStr));
-  
-  // Verify that all required daily quest types are present
   const dailyTypes = quests.filter(q => q.category === 'daily').map(q => q.type);
   const requiredTypes: Quest['type'][] = ['water', 'workout', 'steps', 'nutrition'];
   const missingDailies = requiredTypes.some(type => !dailyTypes.includes(type));
+  const needsDailyReset = !hasDailies || hasOldDailies || missingDailies;
 
-  if (!hasDailies || hasOldDailies || missingDailies) {
+  // ── Weekly quest check ───────────────────────────────────────────────────────
+  // Weekly quests carry a `weekStart` field (ISO date of the Monday they were created).
+  // If that date doesn't match the current week's Monday, the week has rolled over and
+  // the quests must be reset. Quests without `weekStart` (old data before this fix) are
+  // also treated as stale so they get the field added immediately.
+  const weeklyQuests = quests.filter(q => q.category === 'weekly');
+  const hasOldWeekly = weeklyQuests.some(q => !q.weekStart || q.weekStart !== mondayStr);
+  const needsWeeklyReset = hasOldWeekly;
+
+  if (!needsDailyReset && !needsWeeklyReset) return quests;
+
+  let result = [...quests];
+
+  if (needsDailyReset) {
     const preservedQuests = quests.filter(q => q.category !== 'daily');
     const freshDailies = getDefaultQuests(weightKg).filter(q => q.category === 'daily');
-    
-    // Merge to preserve today's progress if daily quests are already present for today
+    // Preserve today's progress if today's daily quests already exist
     const todayDailies = quests.filter(q => q.category === 'daily' && q.id.endsWith(todayStr));
     const mergedDailies = freshDailies.map(fresh => {
       const existing = todayDailies.find(ext => ext.type === fresh.type);
       return existing || fresh;
     });
-
-    const newQuestList = [...mergedDailies, ...preservedQuests];
-    await saveAllQuests(uid, newQuestList);
-    return newQuestList;
+    result = [...mergedDailies, ...preservedQuests];
   }
-  return quests;
+
+  if (needsWeeklyReset) {
+    const freshWeekly = getDefaultQuests(weightKg).filter(q => q.category === 'weekly');
+    // If any weekly quests already belong to this week, preserve their progress
+    const thisWeekWeekly = weeklyQuests.filter(q => q.weekStart === mondayStr);
+    const mergedWeekly = freshWeekly.map(fresh => {
+      const existing = thisWeekWeekly.find(ext => ext.id === fresh.id);
+      return existing || fresh;
+    });
+    result = [...result.filter(q => q.category !== 'weekly'), ...mergedWeekly];
+  }
+
+  await saveAllQuests(uid, result);
+  return result;
 };
 
 export const saveQuest = async (uid: string, quest: Quest): Promise<void> => {
@@ -473,6 +505,44 @@ export const clearChatHistory = async (uid: string): Promise<void> => {
     }).catch(err => {
       console.warn('Failed to fetch chat history to clear:', err);
     });
+  }
+};
+
+/**
+ * Deletes ALL user data — localStorage AND Firestore sub-collections.
+ * Called from Settings "Redefinir Dados" to guarantee a clean slate even when Firebase is enabled.
+ */
+export const deleteAllUserData = async (uid: string): Promise<void> => {
+  // 1. Clear all questfit_ localStorage keys
+  const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith('questfit_'));
+  keysToRemove.forEach(k => localStorage.removeItem(k));
+
+  if (!isFirebaseEnabled || !db) return;
+
+  // 2. Delete Firestore sub-collections (quests, progress_logs, achievements, chat_history)
+  const subCollections = ['quests', 'progress_logs', 'achievements', 'chat_history'];
+  for (const col of subCollections) {
+    try {
+      const colRef = collection(db, 'users', uid, col);
+      const snap = await getDocs(colRef);
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+    } catch (err) {
+      console.warn(`Failed to delete Firestore collection ${col}:`, err);
+    }
+  }
+
+  // 3. Delete top-level user profile doc and memory doc
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users', uid));
+    batch.delete(doc(db, 'memory', uid));
+    await batch.commit();
+  } catch (err) {
+    console.warn('Failed to delete Firestore user/memory docs:', err);
   }
 };
 

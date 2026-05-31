@@ -56,6 +56,9 @@ export interface Quest {
   progress: number;
   target: number;
   unit: string;
+  /** ISO date (YYYY-MM-DD) of the Monday that started the week this quest belongs to.
+   *  Set on weekly quests only. Used to detect week boundaries and reset stale weekly quests. */
+  weekStart?: string;
 }
 
 export interface LoggedFood {

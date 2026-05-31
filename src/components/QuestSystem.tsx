@@ -209,9 +209,13 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
             }
           }
 
-          // If background check unlocked any achievements or updated profile further, refresh UI
+          // If background check unlocked any achievements or updated profile further, refresh UI.
+          // Read fresh quests from localStorage instead of using the closure snapshot —
+          // the user may have completed additional quests while this background task was running.
           if (allUnlockedAchs.length > 0 || currentProfile.level > finalProfile.level) {
-            onQuestUpdate(updatedQuests, currentProfile, allUnlockedAchs);
+            const cachedRaw = localStorage.getItem(`questfit_quests_${userProfile.uid}`);
+            const freshQuests: Quest[] = cachedRaw ? JSON.parse(cachedRaw) : updatedQuests;
+            onQuestUpdate(freshQuests, currentProfile, allUnlockedAchs);
           }
         } catch (backgroundErr) {
           console.error('Background quest sync failed:', backgroundErr);

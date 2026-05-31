@@ -1,5 +1,5 @@
 import { Quest, Achievement } from '../types';
-import { getLocalDateString } from './dateUtils';
+import { getLocalDateString, getMondayISO } from './dateUtils';
 
 export const getXpNeededForLevel = (level: number): number => {
   return Math.round(level * 100 * 1.5);
@@ -92,7 +92,8 @@ export const getDefaultQuests = (weightKg?: number): Quest[] => {
       completed: false,
       progress: 0,
       target: 4,
-      unit: 'treinos'
+      unit: 'treinos',
+      weekStart: getMondayISO()
     },
     {
       id: 'weekly-adherence',
@@ -103,7 +104,8 @@ export const getDefaultQuests = (weightKg?: number): Quest[] => {
       completed: false,
       progress: 0,
       target: 5,
-      unit: 'dias'
+      unit: 'dias',
+      weekStart: getMondayISO()
     }
   ];
 };
