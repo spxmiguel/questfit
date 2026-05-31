@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { initializeAuth, getAuth, browserLocalPersistence, browserPopupRedirectResolver } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -28,11 +28,22 @@ let isFirebaseEnabled = false;
 if (isConfigComplete) {
   try {
     app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    auth = getAuth(app);
+    try {
+      auth = initializeAuth(app, {
+        persistence: [browserLocalPersistence],
+        popupRedirectResolver: browserPopupRedirectResolver
+      });
+    } catch (e: any) {
+      if (e.code === 'auth/already-initialized' || auth != null) {
+        auth = getAuth(app);
+      } else {
+        throw e;
+      }
+    }
     db = getFirestore(app);
     storage = getStorage(app);
     isFirebaseEnabled = true;
-    console.log('Firebase initialized successfully.');
+    console.log('Firebase initialized successfully with custom resolver.');
   } catch (error) {
     console.warn('Firebase failed to initialize:', error);
   }
