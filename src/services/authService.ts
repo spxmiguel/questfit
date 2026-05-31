@@ -238,6 +238,7 @@ export const registerWithEmail = async (email: string, pass: string, name: strin
 export const loginWithGoogle = async (): Promise<UserSession> => {
   if (isFirebaseEnabled && auth) {
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
     
     // WebKit/Safari / ITP workaround:
     // 1. Try signInWithPopup with a timeout race (Safari popup blocker can freeze the promise in background).
