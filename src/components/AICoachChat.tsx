@@ -153,14 +153,26 @@ export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }:
             <h4 className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-1">
               <Dumbbell className="w-3.5 h-3.5 text-violet-400" /> Preferências
             </h4>
-            <div className="p-3 bg-zinc-900/60 border border-zinc-800 rounded-2xl space-y-1">
-              {userMemory.preferences.location ? (
+            <div className="p-3 bg-zinc-900/60 border border-zinc-800 rounded-2xl space-y-1.5">
+              {userMemory.preferences.location || userMemory.preferences.dietType ? (
                 <>
-                  <p className="text-zinc-200 font-semibold text-xs">
-                    Local: {userMemory.preferences.location === 'home' ? 'Em Casa' : 'Na Academia'}
-                  </p>
+                  {userMemory.preferences.location && (
+                    <p className="text-zinc-200 font-semibold text-xs">
+                      Local: {userMemory.preferences.location === 'home' ? 'Em Casa' : 'Na Academia'}
+                    </p>
+                  )}
                   {userMemory.preferences.dietType && (
-                    <p className="text-zinc-400 text-xs">Dieta: {userMemory.preferences.dietType === 'omnivore' ? 'Onívora' : userMemory.preferences.dietType === 'vegetarian' ? 'Vegetariana' : 'Vegana'}</p>
+                    <p className="text-zinc-400 text-xs">
+                      Dieta: {
+                        userMemory.preferences.dietType === 'omnivore' ? 'Onívora' :
+                        userMemory.preferences.dietType === 'vegetarian' ? 'Vegetariana' :
+                        userMemory.preferences.dietType === 'vegan' ? 'Vegana' :
+                        userMemory.preferences.dietType === 'carnivore' ? 'Carnívora' :
+                        userMemory.preferences.dietType === 'keto' ? 'Cetogênica' :
+                        userMemory.preferences.dietType === 'lowcarb' ? 'Low Carb' :
+                        userMemory.preferences.dietType
+                      }
+                    </p>
                   )}
                 </>
               ) : (

@@ -48,7 +48,7 @@ O bloco deve estar exatamente no formato abaixo (sem texto extra dentro do bloco
     "preferences": {
       "location": "home", // "home" ou "gym"
       "equipment": ["bodyweight", "dumbbells"],
-      "dietType": "omnivore"
+      "dietType": "omnivore" // "omnivore" | "vegetarian" | "vegan" | "carnivore" | "keto" | "lowcarb"
     },
     "healthConstraints": {
       "injuries": ["kneePain"] // lista de lesões/dores
@@ -123,10 +123,24 @@ const getMockResponse = (userMessage: string, memory: UserMemory): { text: strin
       }
     };
   } else if (msg.includes('vegetariano') || msg.includes('vegano')) {
-    text = `Dieta atualizada na ficha de nutrição! 🥗\n\nGerando sugestões de refeições focadas em fontes de proteínas vegetais limpas (tapioca com tofu, grão-de-bico, ovos e shakes proteicos se for vegetariano). Pronto para começar sua primeira quest de hidratação hoje? Beba 2L de água para ganhar +50 XP!`;
+    text = `Dieta atualizada na ficha de nutrição! 🥗\n\nGerando sugestões de refeições focadas em fontes de proteínas vegetais limpas. Pronto para começar sua primeira quest de hidratação hoje? Beba água para ganhar +50 XP!`;
     memoryUpdate = {
       preferences: {
         dietType: msg.includes('vegano') ? 'vegan' : 'vegetarian'
+      }
+    };
+  } else if (msg.includes('carne') || msg.includes('carnivoro') || msg.includes('carnívora')) {
+    text = `Dieta carnívora registrada na sua ficha! 🥩\n\nFocando suas refeições em proteínas e gorduras de origem animal de qualidade. Pronto para começar sua primeira quest de hidratação hoje? Beba água para ganhar +50 XP!`;
+    memoryUpdate = {
+      preferences: {
+        dietType: 'carnivore'
+      }
+    };
+  } else if (msg.includes('keto') || msg.includes('cetogenica') || msg.includes('cetogênica') || msg.includes('low carb') || msg.includes('lowcarb')) {
+    text = `Preferência de dieta Low Carb / Cetogênica registrada em sua ficha! 🥑\n\nFocando em gorduras boas, proteínas e vegetais de baixo amido. Pronto para começar sua primeira quest de hidratação hoje? Beba água para ganhar +50 XP!`;
+    memoryUpdate = {
+      preferences: {
+        dietType: msg.includes('keto') || msg.includes('cetogenica') || msg.includes('cetogênica') ? 'keto' : 'lowcarb'
       }
     };
   } else {

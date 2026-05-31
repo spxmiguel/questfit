@@ -22,7 +22,7 @@ export interface UserMemory {
     location?: 'home' | 'gym';
     equipment?: string[];
     timeOfDay?: 'morning' | 'afternoon' | 'evening';
-    dietType?: 'omnivore' | 'vegetarian' | 'vegan' | 'keto';
+    dietType?: 'omnivore' | 'vegetarian' | 'vegan' | 'carnivore' | 'keto' | 'lowcarb';
     allergies?: string[];
   };
   healthConstraints: {

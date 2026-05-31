@@ -76,6 +76,26 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
         { id: '6', name: 'Sementes de Chia & Linhaça', checked: false },
         { id: '7', name: 'Brócolis, Couve & Espinafre', checked: false }
       );
+    } else if (dietType === 'carnivore') {
+      list.push(
+        { id: '1', name: 'Filé mignon / Contra filé', checked: false },
+        { id: '2', name: 'Peito de frango / Sobrecoxa', checked: false },
+        { id: '3', name: 'Ovos caipiras inteiros', checked: false },
+        { id: '4', name: 'Postas de salmão / Atum fresco', checked: false },
+        { id: '5', name: 'Bacon artesanal magro', checked: false },
+        { id: '6', name: 'Manteiga ghee / Banha purificada', checked: false },
+        { id: '7', name: 'Caldo de ossos concentrado', checked: false }
+      );
+    } else if (dietType === 'keto' || dietType === 'lowcarb') {
+      list.push(
+        { id: '1', name: 'Carnes gordas e Peixes gordos', checked: false },
+        { id: '2', name: 'Ovos e Queijos curados', checked: false },
+        { id: '3', name: 'Abacate e Coco fresco', checked: false },
+        { id: '4', name: 'Azeite de oliva e Manteiga', checked: false },
+        { id: '5', name: 'Nozes, Amêndoas e Macadâmias', checked: false },
+        { id: '6', name: 'Vegetais de baixo amido (Brócolis, Couve-flor)', checked: false },
+        { id: '7', name: 'Creme de leite fresco / Nata', checked: false }
+      );
     } else {
       // Omnivore
       list.push(
@@ -153,6 +173,20 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
         { name: 'Almoço', desc: 'Lentilha cozida com arroz integral, sementes de girassol torradas e espinafre refogado.' },
         { name: 'Lanche da Tarde', desc: 'Pasta de amendoim com maçã picada + shake de proteína de ervilha com chia.' },
         { name: 'Jantar', desc: 'Almôndegas de feijão preto com molho de tomate natural e macarrão de abobrinha.' }
+      ];
+    } else if (diet === 'carnivore') {
+      return [
+        { name: 'Café da Manhã', desc: '4 ovos fritos na manteiga com fatias de bacon artesanal.' },
+        { name: 'Almoço', desc: '300g de contra-filé grelhado ao ponto + copo de caldo de ossos concentrado.' },
+        { name: 'Lanche da Tarde', desc: 'Iogurte natural integral sem açúcar + 2 ovos cozidos com sal marinho.' },
+        { name: 'Jantar', desc: '250g de sobrecoxa de frango assada na banha de porco com a pele crocante.' }
+      ];
+    } else if (diet === 'keto' || diet === 'lowcarb') {
+      return [
+        { name: 'Café da Manhã', desc: 'Omelete de 3 ovos com bastante queijo ralado e espinafre frito na manteiga.' },
+        { name: 'Almoço', desc: 'Posta de salmão grelhada com azeite de oliva + purê de couve-flor gratinado.' },
+        { name: 'Lanche da Tarde', desc: '1 abacate médio picado com limão e um punhado de nozes macadâmias.' },
+        { name: 'Jantar', desc: 'Carne moída refogada com bacon, cebola e pimentão, servida com salada verde regada a azeite.' }
       ];
     } else {
       // Omnivore
