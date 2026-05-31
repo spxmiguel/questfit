@@ -442,3 +442,44 @@ Responda APENAS com um objeto JSON válido, sem crases, markdown ou qualquer tex
     throw new Error('Falha ao analisar imagem. Verifique se a sua chave API da Gemini nas Configurações é válida.');
   }
 };
+
+export const regenerateMealSuggestion = async (
+  mealName: string,
+  currentDesc: string,
+  instruction: string,
+  dietType: string,
+  focus: string
+): Promise<string> => {
+  const geminiKey = getStoredGeminiKey();
+  
+  if (!geminiKey) {
+    console.log('Gemini API Key missing. Returning simulated customized meal.');
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(`[Personalizado] Nova opção de ${mealName}: Uma alternativa adaptada para atender ao seu pedido de "${instruction}". Por exemplo: Frango grelhado temperado, salada de tomate com azeite e purê de abóbora cozida.`);
+      }, 1000);
+    });
+  }
+
+  const genAI = new GoogleGenerativeAI(geminiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const prompt = `Você é um nutricionista esportivo especializado em RPG.
+O usuário está seguindo uma dieta de tipo: ${dietType} com o objetivo principal de: ${focus}.
+Ele recebeu a seguinte sugestão de refeição para o "${mealName}":
+"${currentDesc}"
+
+No entanto, o usuário solicitou uma mudança com a seguinte instrução:
+"${instruction}"
+
+Crie uma nova sugestão de refeição saudável, nutritiva e adequada para o "${mealName}" que atenda a essa instrução.
+Importante: Forneça como resposta APENAS a descrição curta da nova refeição em português (1 ou 2 frases curtas), no mesmo estilo da anterior. Não inclua introduções, explicações, aspas ou títulos.`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
+  } catch (error) {
+    console.error('Gemini meal regeneration failed:', error);
+    throw new Error('Falha ao gerar nova recomendação de refeição via IA.');
+  }
+};

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, UserMemory, ProgressLog } from '../types';
-import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, CheckSquare, Camera, Upload, Image, Share2, Trash2 } from 'lucide-react';
+import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, CheckSquare, Camera, Upload, Image, Share2, Trash2, Wand2, Edit3, RefreshCw } from 'lucide-react';
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests } from '../services/dbService';
-import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey } from '../services/aiService';
+import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey, regenerateMealSuggestion } from '../services/aiService';
 import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
 import { getLocalDateString } from '../utils/dateUtils';
 import { calculateBMR, calculateTDEE } from '../utils/healthMath';
@@ -13,6 +13,45 @@ interface NutritionSystemProps {
   userMemory: UserMemory;
   onNutritionLogged: (updatedProfile: UserProfile, unlockedAchs: any[]) => void;
 }
+
+const getDefaultMealSuggestions = (diet: string) => {
+  if (diet === 'vegetarian') {
+    return [
+      { name: 'Café da Manhã', desc: 'Omelete de 3 ovos com espinafre e queijo cottage + 1 fatia de pão integral.' },
+      { name: 'Almoço', desc: 'Grão-de-bico ensopado com quinoa cozida, abóbora assada e brócolis cozido no vapor.' },
+      { name: 'Lanche da Tarde', desc: 'Shake proteico vegetal (ou whey) batido com aveia, leite de amêndoas e 1 banana.' },
+      { name: 'Jantar', desc: 'Tofu grelhado temperado com cúrcuma, purê de batata doce e salada de folhas verdes à vontade.' }
+    ];
+  } else if (diet === 'vegan') {
+    return [
+      { name: 'Café da Manhã', desc: 'Tofu mexido temperado com levedura nutricional e tomate + 1 copo de suco verde.' },
+      { name: 'Almoço', desc: 'Lentilha cozida com arroz integral, sementes de girassol torradas e espinafre refogado.' },
+      { name: 'Lanche da Tarde', desc: 'Pasta de amendoim com maçã picada + shake de proteína de ervilha com chia.' },
+      { name: 'Jantar', desc: 'Almôndegas de feijão preto com molho de tomate natural e macarrão de abobrinha.' }
+    ];
+  } else if (diet === 'carnivore') {
+    return [
+      { name: 'Café da Manhã', desc: '4 ovos fritos na manteiga com fatias de bacon artesanal.' },
+      { name: 'Almoço', desc: '300g de contra-filé grelhado ao ponto + copo de caldo de ossos concentrado.' },
+      { name: 'Lanche da Tarde', desc: 'Iogurte natural integral sem açúcar + 2 ovos cozidos com sal marinho.' },
+      { name: 'Jantar', desc: '250g de sobrecoxa de frango assada na banha de porco com a pele crocante.' }
+    ];
+  } else if (diet === 'keto' || diet === 'lowcarb') {
+    return [
+      { name: 'Café da Manhã', desc: 'Omelete de 3 ovos com bastante queijo ralado e espinafre frito na manteiga.' },
+      { name: 'Almoço', desc: 'Posta de salmão grelhada com azeite de oliva + purê de couve-flor gratinado.' },
+      { name: 'Lanche da Tarde', desc: '1 abacate médio picado com limão e um punhado de nozes macadâmias.' },
+      { name: 'Jantar', desc: 'Carne moída refogada com bacon, cebola e pimentão, servida com salada verde regada a azeite.' }
+    ];
+  } else {
+    return [
+      { name: 'Café da Manhã', desc: '3 ovos mexidos + 100g de mamão formosa com 1 colher de chia.' },
+      { name: 'Almoço', desc: '150g de peito de frango grelhado + 120g de arroz integral + mix de salada (alface, tomate e rúcula).' },
+      { name: 'Lanche da Tarde', desc: 'Iogurte natural desnatado + 30g de Whey Protein + 15g de castanha de caju.' },
+      { name: 'Jantar', desc: '120g de filé de tilápia assada + 100g de batata doce cozida + brócolis refogado no azeite.' }
+    ];
+  }
+};
 
 export default function NutritionSystem({ userProfile, userMemory, onNutritionLogged }: NutritionSystemProps) {
   const [calorieInput, setCalorieInput] = useState('');
@@ -57,6 +96,84 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
   };
 
   const targets = calculateTargets();
+
+  const cacheKey = `questfit_custom_meals_${userProfile.uid}_${diet}`;
+  const hasCustomMeals = !!localStorage.getItem(cacheKey);
+
+  // Meal customization states
+  const [meals, setMeals] = useState<{ name: string; desc: string }[]>(() => {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {
+        console.error('Failed to parse cached meals:', e);
+      }
+    }
+    return getDefaultMealSuggestions(diet);
+  });
+  const [editingMealIndex, setEditingMealIndex] = useState<number | null>(null);
+  const [customInstruction, setCustomInstruction] = useState<string>('');
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        setMeals(JSON.parse(cached));
+      } catch (e) {
+        console.error('Failed to parse cached meals:', e);
+        setMeals(getDefaultMealSuggestions(diet));
+      }
+    } else {
+      setMeals(getDefaultMealSuggestions(diet));
+    }
+    setEditingMealIndex(null);
+    setCustomInstruction('');
+    setRegenerateError(null);
+  }, [userProfile.uid, diet, cacheKey]);
+
+  const handleResetMeals = () => {
+    if (window.confirm('Deseja restaurar as sugestões de refeições padrão para esta dieta? Suas personalizações atuais serão apagadas.')) {
+      const defaults = getDefaultMealSuggestions(diet);
+      setMeals(defaults);
+      localStorage.removeItem(cacheKey);
+      setEditingMealIndex(null);
+      setCustomInstruction('');
+      setRegenerateError(null);
+    }
+  };
+
+  const handleRegenerateMeal = async (index: number) => {
+    if (!customInstruction.trim() || regeneratingIndex !== null) return;
+    
+    setRegeneratingIndex(index);
+    setRegenerateError(null);
+    
+    try {
+      const meal = meals[index];
+      const newDesc = await regenerateMealSuggestion(
+        meal.name,
+        meal.desc,
+        customInstruction.trim(),
+        diet,
+        focus
+      );
+      
+      const updatedMeals = meals.map((m, i) => i === index ? { ...m, desc: newDesc } : m);
+      setMeals(updatedMeals);
+      localStorage.setItem(cacheKey, JSON.stringify(updatedMeals));
+      
+      setEditingMealIndex(null);
+      setCustomInstruction('');
+    } catch (err: any) {
+      console.error(err);
+      setRegenerateError(err.message || 'Falha ao gerar nova recomendação de refeição via IA.');
+    } finally {
+      setRegeneratingIndex(null);
+    }
+  };
 
   useEffect(() => {
     getProgressLogForDate(userProfile.uid, todayStr).then(setTodayLog);
@@ -374,46 +491,6 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
     setTimeout(() => setCopySuccess(false), 4000);
   };
 
-  const getMealSuggestions = () => {
-    if (diet === 'vegetarian') {
-      return [
-        { name: 'Café da Manhã', desc: 'Omelete de 3 ovos com espinafre e queijo cottage + 1 fatia de pão integral.' },
-        { name: 'Almoço', desc: 'Grão-de-bico ensopado com quinoa cozida, abóbora assada e brócolis cozido no vapor.' },
-        { name: 'Lanche da Tarde', desc: 'Shake proteico vegetal (ou whey) batido com aveia, leite de amêndoas e 1 banana.' },
-        { name: 'Jantar', desc: 'Tofu grelhado temperado com cúrcuma, purê de batata doce e salada de folhas verdes à vontade.' }
-      ];
-    } else if (diet === 'vegan') {
-      return [
-        { name: 'Café da Manhã', desc: 'Tofu mexido temperado com levedura nutricional e tomate + 1 copo de suco verde.' },
-        { name: 'Almoço', desc: 'Lentilha cozida com arroz integral, sementes de girassol torradas e espinafre refogado.' },
-        { name: 'Lanche da Tarde', desc: 'Pasta de amendoim com maçã picada + shake de proteína de ervilha com chia.' },
-        { name: 'Jantar', desc: 'Almôndegas de feijão preto com molho de tomate natural e macarrão de abobrinha.' }
-      ];
-    } else if (diet === 'carnivore') {
-      return [
-        { name: 'Café da Manhã', desc: '4 ovos fritos na manteiga com fatias de bacon artesanal.' },
-        { name: 'Almoço', desc: '300g de contra-filé grelhado ao ponto + copo de caldo de ossos concentrado.' },
-        { name: 'Lanche da Tarde', desc: 'Iogurte natural integral sem açúcar + 2 ovos cozidos com sal marinho.' },
-        { name: 'Jantar', desc: '250g de sobrecoxa de frango assada na banha de porco com a pele crocante.' }
-      ];
-    } else if (diet === 'keto' || diet === 'lowcarb') {
-      return [
-        { name: 'Café da Manhã', desc: 'Omelete de 3 ovos com bastante queijo ralado e espinafre frito na manteiga.' },
-        { name: 'Almoço', desc: 'Posta de salmão grelhada com azeite de oliva + purê de couve-flor gratinado.' },
-        { name: 'Lanche da Tarde', desc: '1 abacate médio picado com limão e um punhado de nozes macadâmias.' },
-        { name: 'Jantar', desc: 'Carne moída refogada com bacon, cebola e pimentão, servida com salada verde regada a azeite.' }
-      ];
-    } else {
-      return [
-        { name: 'Café da Manhã', desc: '3 ovos mexidos + 100g de mamão formosa com 1 colher de chia.' },
-        { name: 'Almoço', desc: '150g de peito de frango grelhado + 120g de arroz integral + mix de salada (alface, tomate e rúcula).' },
-        { name: 'Lanche da Tarde', desc: 'Iogurte natural desnatado + 30g de Whey Protein + 15g de castanha de caju.' },
-        { name: 'Jantar', desc: '120g de filé de tilápia assada + 100g de batata doce cozida + brócolis refogado no azeite.' }
-      ];
-    }
-  };
-
-  const meals = getMealSuggestions();
   const calPercent = todayLog ? Math.round(((todayLog.caloriesConsumed || 0) / targets.calories) * 100) : 0;
   const protPercent = todayLog ? Math.round(((todayLog.proteinConsumedG || 0) / targets.protein) * 100) : 0;
 
@@ -734,16 +811,30 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
                 Cardápio IA do Dia
               </h3>
 
-              {/* Export diet sharing button */}
-              <button
-                type="button"
-                onClick={handleExportDiet}
-                className="py-1.5 px-3 bg-zinc-955 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white font-bold rounded-xl transition duration-150 cursor-pointer text-[10px] flex items-center gap-1.5"
-                title="Copiar dieta formatada para compartilhar"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                Exportar Dieta
-              </button>
+              <div className="flex gap-2">
+                {hasCustomMeals && (
+                  <button
+                    type="button"
+                    onClick={handleResetMeals}
+                    className="py-1.5 px-3 bg-zinc-955 hover:bg-rose-950/20 border border-zinc-800 hover:border-rose-900/35 text-zinc-400 hover:text-rose-400 font-bold rounded-xl transition duration-150 cursor-pointer text-[10px] flex items-center gap-1.5 animate-scale-up"
+                    title="Restaurar cardápio original da dieta"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Resetar Padrão
+                  </button>
+                )}
+
+                {/* Export diet sharing button */}
+                <button
+                  type="button"
+                  onClick={handleExportDiet}
+                  className="py-1.5 px-3 bg-zinc-955 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white font-bold rounded-xl transition duration-150 cursor-pointer text-[10px] flex items-center gap-1.5"
+                  title="Copiar dieta formatada para compartilhar"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  Exportar Dieta
+                </button>
+              </div>
             </div>
 
             {copySuccess && (
@@ -753,12 +844,91 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
             )}
             
             <div className="space-y-3">
-              {meals.map((meal, idx) => (
-                <div key={idx} className="p-3 bg-zinc-900/60 border border-zinc-800 rounded-2xl space-y-1">
-                  <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wide">{meal.name}</span>
-                  <p className="text-xs text-zinc-300 leading-normal">{meal.desc}</p>
-                </div>
-              ))}
+              {meals.map((meal, idx) => {
+                const isEditing = editingMealIndex === idx;
+                const isRegenerating = regeneratingIndex === idx;
+
+                return (
+                  <div key={idx} className="p-4 bg-zinc-900/60 border border-zinc-800 rounded-2xl space-y-2 relative transition group">
+                    <div className="flex justify-between items-start">
+                      <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wide">{meal.name}</span>
+                      
+                      {!isEditing && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMealIndex(idx);
+                            setCustomInstruction('');
+                            setRegenerateError(null);
+                          }}
+                          className="py-1 px-2 bg-zinc-900/60 md:bg-zinc-950/20 hover:bg-zinc-850 text-zinc-400 hover:text-yellow-400 border border-zinc-800/60 hover:border-zinc-700/85 rounded-xl transition duration-155 cursor-pointer text-[10px] flex items-center gap-1"
+                        >
+                          <Wand2 className="w-3 h-3 text-yellow-500" />
+                          Ajustar
+                        </button>
+                      )}
+                    </div>
+                    
+                    {!isEditing ? (
+                      <p className="text-xs text-zinc-300 leading-relaxed">{meal.desc}</p>
+                    ) : (
+                      <div className="space-y-3 pt-1">
+                        <p className="text-[11px] text-zinc-400 italic">Atual: "{meal.desc}"</p>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-zinc-500 uppercase">O que melhorar ou substituir?</label>
+                          <textarea
+                            className="w-full bg-zinc-950 border border-zinc-800 text-xs rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-orange-500 text-white placeholder-zinc-600 resize-none"
+                            rows={2}
+                            placeholder="Ex: Não gosto de ovo, sugira outra coisa; Não tenho esse ingrediente; Quero algo mais leve..."
+                            value={customInstruction}
+                            onChange={(e) => setCustomInstruction(e.target.value)}
+                            disabled={isRegenerating}
+                          />
+                        </div>
+                        
+                        {regenerateError && (
+                          <div className="text-[10px] text-rose-455 font-medium">
+                            {regenerateError}
+                          </div>
+                        )}
+
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMealIndex(null);
+                              setCustomInstruction('');
+                              setRegenerateError(null);
+                            }}
+                            className="py-1.5 px-3 bg-zinc-955 hover:bg-zinc-900 border border-zinc-850 text-zinc-400 hover:text-white font-bold rounded-xl transition duration-150 cursor-pointer text-[10px]"
+                            disabled={isRegenerating}
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRegenerateMeal(idx)}
+                            disabled={isRegenerating || !customInstruction.trim()}
+                            className="py-1.5 px-3 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold rounded-xl transition duration-150 cursor-pointer text-[10px] flex items-center gap-1.5"
+                          >
+                            {isRegenerating ? (
+                              <>
+                                <div className="w-2.5 h-2.5 border border-white border-t-transparent rounded-full animate-spin"></div>
+                                Customizando...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3 h-3 text-yellow-300" />
+                                Recomendar Novo
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
