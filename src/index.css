@@ -6,12 +6,18 @@
     --bg-secondary: #18181b;
     --text-primary: #fafafa;
     --text-secondary: #a1a1aa;
-    
+
     --rpg-purple: #8b5cf6;
     --rpg-pink: #ec4899;
     --rpg-blue: #3b82f6;
     --rpg-green: #10b981;
     --rpg-yellow: #f59e0b;
+
+    /* Safe area insets for notched iPhones */
+    --safe-top:    env(safe-area-inset-top,    0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left:   env(safe-area-inset-left,   0px);
+    --safe-right:  env(safe-area-inset-right,  0px);
   }
 
   body {
@@ -19,6 +25,45 @@
     color: var(--text-primary);
     font-family: 'Outfit', system-ui, -apple-system, sans-serif;
     overflow-x: hidden;
+    /* Prevent rubberbanding / overscroll showing white on iOS */
+    overscroll-behavior: none;
+    /* Smooth momentum scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Remove iOS tap highlight on all interactive elements ── */
+  *, *::before, *::after {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── Buttons & links: faster tap response, no double-tap zoom ── */
+  button, a, [role="button"] {
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+
+  /* ── Prevent iOS auto-zoom on small inputs (needs font-size ≥ 16px) ── */
+  input, textarea, select {
+    font-size: 16px;
+    /* Scale text down visually with transform so design stays compact */
+  }
+  @media (max-width: 767px) {
+    /* On mobile, override Tailwind's text-xs/text-sm on inputs */
+    input[class*="text-xs"], textarea[class*="text-xs"] {
+      font-size: 16px !important;
+    }
+    input[class*="text-sm"], textarea[class*="text-sm"] {
+      font-size: 16px !important;
+    }
+  }
+
+  /* ── Scrollable containers: hide scrollbar, enable snap scrolling ── */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 
   /* Custom Scrollbar */

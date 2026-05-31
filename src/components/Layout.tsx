@@ -115,10 +115,10 @@ export default function Layout({
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-grow pb-24 md:pb-6 md:p-6 min-h-screen overflow-y-auto z-10">
-        {/* Mobile top bar */}
-        <header className="md:hidden px-6 py-4 bg-zinc-900/60 border-b border-zinc-800/80 sticky top-0 flex justify-between items-center z-25 backdrop-blur-md">
+      {/* Main Content Area — pb accounts for bottom nav (64px) + iPhone home indicator */}
+      <main className="flex-grow pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-6 md:p-6 min-h-screen overflow-y-auto z-10">
+        {/* Mobile top bar — pt accounts for iPhone status bar / Dynamic Island */}
+        <header className="md:hidden px-6 py-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] bg-zinc-900/60 border-b border-zinc-800/80 sticky top-0 flex justify-between items-center z-25 backdrop-blur-md">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-xl bg-gradient-to-tr from-violet-600 to-pink-500 text-white">
               <Dumbbell className="w-4 h-4" />
@@ -138,8 +138,8 @@ export default function Layout({
         {children}
       </main>
 
-      {/* Mobile Bottom Navigation Bar */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-zinc-900/90 border-t border-zinc-800/80 py-2.5 px-4 flex gap-5 overflow-x-auto scrollbar-none z-30 backdrop-blur-md justify-start">
+      {/* Mobile Bottom Navigation Bar — pb accounts for iPhone home indicator */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-zinc-900/95 border-t border-zinc-800/80 pt-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom,0px))] px-2 flex overflow-x-auto scrollbar-none z-30 backdrop-blur-xl justify-around">
         {menuItems.map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -148,12 +148,16 @@ export default function Layout({
               key={item.id}
               type="button"
               onClick={() => onSelectTab(item.id)}
-              className={`flex flex-col items-center gap-1 flex-shrink-0 min-w-[56px] cursor-pointer transition ${
-                isActive ? 'text-violet-400 font-bold' : 'text-zinc-500'
+              className={`flex flex-col items-center gap-1 flex-1 min-w-0 py-1 cursor-pointer transition-all duration-150 active:scale-90 ${
+                isActive ? 'text-violet-400' : 'text-zinc-500 active:text-zinc-300'
               }`}
             >
-              <Icon className="w-5.5 h-5.5" />
-              <span className="text-[10px]">{item.label}</span>
+              <div className={`p-1.5 rounded-xl transition-all duration-150 ${isActive ? 'bg-violet-500/15' : ''}`}>
+                <Icon className="w-5 h-5" />
+              </div>
+              <span className={`text-[9px] font-semibold truncate w-full text-center ${isActive ? 'font-bold' : ''}`}>
+                {item.label}
+              </span>
             </button>
           );
         })}

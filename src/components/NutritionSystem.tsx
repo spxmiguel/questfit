@@ -3,7 +3,7 @@ import { UserProfile, UserMemory, ProgressLog } from '../types';
 import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, CheckSquare, Camera, Upload, Image, Share2, Trash2, Wand2, Edit3, RefreshCw } from 'lucide-react';
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests } from '../services/dbService';
-import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey, regenerateMealSuggestion, generateDailyMealPlan } from '../services/aiService';
+import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey, regenerateMealSuggestion, generateDailyMealPlan, AIMenuResult } from '../services/aiService';
 import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
 import { getLocalDateString } from '../utils/dateUtils';
 import { calculateBMR, calculateTDEE } from '../utils/healthMath';
@@ -138,12 +138,26 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       } catch {}
     }
 
-    // No custom meals for this diet — check if we have today's AI plan
-    const aiPlanKey = `questfit_ai_mealplan_${userProfile.uid}_${diet}_${todayStr}`;
-    const aiCached = localStorage.getItem(aiPlanKey);
-    if (aiCached) {
+    // Helper: apply an AIMenuResult (meals + matching grocery list)
+    const applyAIResult = (result: AIMenuResult) => {
+      setMeals(result.meals);
+      if (result.groceryList.length > 0) {
+        setGroceryItems(
+          result.groceryList.map((name, i) => ({ id: `ai_grocery_${i}`, name, checked: false }))
+        );
+      }
+    };
+
+    // No custom meals — check if we already have today's AI plan cached
+    const aiPlanKey   = `questfit_ai_mealplan_${userProfile.uid}_${diet}_${todayStr}`;
+    const aiGrocKey   = `questfit_ai_grocery_${userProfile.uid}_${diet}_${todayStr}`;
+    const cachedAIMeals   = localStorage.getItem(aiPlanKey);
+    const cachedAIGrocery = localStorage.getItem(aiGrocKey);
+    if (cachedAIMeals) {
       try {
-        setMeals(JSON.parse(aiCached));
+        const meals = JSON.parse(cachedAIMeals);
+        const grocery: string[] = cachedAIGrocery ? JSON.parse(cachedAIGrocery) : [];
+        applyAIResult({ meals, groceryList: grocery });
         setEditingMealIndex(null);
         setCustomInstruction('');
         setRegenerateError(null);
@@ -151,7 +165,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       } catch {}
     }
 
-    // Nothing cached — show static meals immediately, generate AI plan in background
+    // Nothing cached — show static fallback immediately, generate AI plan in background
     setMeals(getDefaultMealSuggestions(diet));
     setEditingMealIndex(null);
     setCustomInstruction('');
@@ -159,17 +173,9 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
 
     if (getStoredGeminiKey()) {
       setIsGeneratingMealPlan(true);
-      generateDailyMealPlan(
-        userMemory,
-        userProfile.uid,
-        todayStr,
-        targets.calories,
-        targets.protein
-      ).then(aiMeals => {
-        if (aiMeals && aiMeals.length >= 4) {
-          setMeals(aiMeals);
-        }
-      }).catch(console.error)
+      generateDailyMealPlan(userMemory, userProfile.uid, todayStr, targets.calories, targets.protein)
+        .then(result => { if (result) applyAIResult(result); })
+        .catch(console.error)
         .finally(() => setIsGeneratingMealPlan(false));
     }
   }, [userProfile.uid, diet, cacheKey]);
@@ -190,19 +196,26 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       alert('Configure a chave API Gemini nas Configurações para gerar o cardápio com IA.');
       return;
     }
-    // Clear all meal caches so the AI plan is forced to regenerate
+    // Clear all caches so the AI is forced to regenerate both meals and grocery list
     localStorage.removeItem(cacheKey);
-    const aiPlanKey = `questfit_ai_mealplan_${userProfile.uid}_${diet}_${todayStr}`;
-    localStorage.removeItem(aiPlanKey);
+    localStorage.removeItem(`questfit_ai_mealplan_${userProfile.uid}_${diet}_${todayStr}`);
+    localStorage.removeItem(`questfit_ai_grocery_${userProfile.uid}_${diet}_${todayStr}`);
 
-    setMeals(getDefaultMealSuggestions(diet)); // show static while generating
+    setMeals(getDefaultMealSuggestions(diet));
     setEditingMealIndex(null);
     setCustomInstruction('');
     setIsGeneratingMealPlan(true);
 
     generateDailyMealPlan(userMemory, userProfile.uid, todayStr, targets.calories, targets.protein)
-      .then(aiMeals => {
-        if (aiMeals && aiMeals.length >= 4) setMeals(aiMeals);
+      .then(result => {
+        if (result) {
+          setMeals(result.meals);
+          if (result.groceryList.length > 0) {
+            setGroceryItems(
+              result.groceryList.map((name, i) => ({ id: `ai_grocery_${i}`, name, checked: false }))
+            );
+          }
+        }
       })
       .catch(console.error)
       .finally(() => setIsGeneratingMealPlan(false));

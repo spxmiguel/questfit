@@ -545,26 +545,34 @@ Responda APENAS com um objeto JSON válido, sem crases, markdown ou qualquer tex
 // Generates 4 personalized meals based on the user's full profile.
 // Result is cached per day+diet so it only calls the API once per day.
 
+export interface AIMenuResult {
+  meals: { name: string; desc: string }[];
+  groceryList: string[];
+}
+
 export const generateDailyMealPlan = async (
   memory: UserMemory,
   uid: string,
-  dateStr: string,           // YYYY-MM-DD — used for daily cache key
+  dateStr: string,
   calorieTarget: number,
   proteinTarget: number
-): Promise<{ name: string; desc: string }[] | null> => {
+): Promise<AIMenuResult | null> => {
   const diet = memory.preferences?.dietType || 'omnivore';
-  const cacheKey = `questfit_ai_mealplan_${uid}_${diet}_${dateStr}`;
+  const mealsCacheKey   = `questfit_ai_mealplan_${uid}_${diet}_${dateStr}`;
+  const groceryCacheKey = `questfit_ai_grocery_${uid}_${diet}_${dateStr}`;
 
-  // Return cached plan if already generated today
-  const cached = localStorage.getItem(cacheKey);
-  if (cached) {
-    try { return JSON.parse(cached); } catch {}
+  // Return from cache if already generated today
+  const cachedMeals   = localStorage.getItem(mealsCacheKey);
+  const cachedGrocery = localStorage.getItem(groceryCacheKey);
+  if (cachedMeals && cachedGrocery) {
+    try {
+      return { meals: JSON.parse(cachedMeals), groceryList: JSON.parse(cachedGrocery) };
+    } catch {}
   }
 
   const geminiKey = getStoredGeminiKey();
-  if (!geminiKey) return null; // caller uses static fallback
+  if (!geminiKey) return null;
 
-  // Combine all food restrictions into one block
   const restrictions = [
     memory.preferences?.foodRestrictionsRaw,
     memory.wellbeing?.foodComplaints?.join(', '),
@@ -578,37 +586,45 @@ export const generateDailyMealPlan = async (
   const genAI = new GoogleGenerativeAI(geminiKey);
   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-  const prompt = `Você é nutricionista esportivo especializado. Crie um plano alimentar personalizado para 1 dia completo.
+  const prompt = `Você é nutricionista esportivo especializado. Crie um plano alimentar personalizado para 1 dia.
 
-PERFIL DO USUÁRIO:
-- Tipo de dieta: ${diet}
-- Objetivo: ${memory.goals?.focusArea || 'saúde geral'}
-- Meta calórica diária: ${calorieTarget} kcal
-- Meta de proteína diária: ${proteinTarget}g
+PERFIL:
+- Dieta: ${diet} | Objetivo: ${memory.goals?.focusArea || 'saúde'} | Intensidade: ${memory.goals?.intensity || 'moderate'}
+- Meta: ${calorieTarget} kcal / ${proteinTarget}g proteína
 - Peso: ${weightKg ? weightKg + ' kg' : 'não informado'}
-- Foco atual de bem-estar: ${memory.wellbeing?.currentMood || 'normal'}, energia ${memory.wellbeing?.energyLevel || 'normal'}
-${restrictions ? `\nRESTRIÇÕES PERMANENTES — NUNCA inclua esses alimentos:\n${restrictions}` : ''}
+${restrictions ? `- RESTRIÇÕES PERMANENTES (NUNCA use): ${restrictions}` : ''}
 
-Gere 4 refeições equilibradas, variadas e que respeitem TODAS as restrições acima.
-Responda APENAS com um array JSON válido, sem markdown, sem explicações, exatamente assim:
+Gere 4 refeições + lista de compras COERENTE com essas refeições (não invente ingredientes que não estão nas refeições).
+Responda SOMENTE com JSON válido, sem markdown:
 
-[
-  {"name":"Café da Manhã","desc":"descrição detalhada e apetitosa em 1-2 frases, com quantidades"},
-  {"name":"Almoço","desc":"..."},
-  {"name":"Lanche da Tarde","desc":"..."},
-  {"name":"Jantar","desc":"..."}
-]`;
+{
+  "meals": [
+    {"name":"Café da Manhã","desc":"descrição com quantidades em 1-2 frases"},
+    {"name":"Almoço","desc":"..."},
+    {"name":"Lanche da Tarde","desc":"..."},
+    {"name":"Jantar","desc":"..."}
+  ],
+  "groceryList": [
+    "Item exato usado nas refeições acima, com quantidade semanal",
+    "..."
+  ]
+}`;
 
   try {
     const result = await model.generateContent(prompt);
     const text = result.response.text().trim();
-    // Extract JSON array — Gemini sometimes adds markdown fences
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
+
+    // Try to extract JSON object (may have markdown fences)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      const meals: { name: string; desc: string }[] = JSON.parse(jsonMatch[0]);
-      if (Array.isArray(meals) && meals.length >= 4) {
-        localStorage.setItem(cacheKey, JSON.stringify(meals));
-        return meals;
+      const parsed = JSON.parse(jsonMatch[0]);
+      const meals: { name: string; desc: string }[] = parsed.meals || [];
+      const groceryList: string[] = parsed.groceryList || [];
+
+      if (meals.length >= 4) {
+        localStorage.setItem(mealsCacheKey, JSON.stringify(meals));
+        localStorage.setItem(groceryCacheKey, JSON.stringify(groceryList));
+        return { meals, groceryList };
       }
     }
     return null;

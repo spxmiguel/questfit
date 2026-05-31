@@ -3,9 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="QuestFit - AI Fitness RPG. Transforme seus treinos, hábitos e nutrição em um jogo de RPG na vida real." />
+
+    <!-- Viewport: viewport-fit=cover for notch/island iPhones, user-scalable=no prevents accidental zoom -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+
+    <!-- PWA / App-like meta tags -->
+    <meta name="theme-color" content="#09090b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="QuestFit" />
+    <meta name="application-name" content="QuestFit" />
+
+    <!-- PWA manifest + icons -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+
+    <!-- SEO -->
+    <meta name="description" content="QuestFit - Transforme treinos, nutrição e hábitos em um jogo de RPG. Cardápio personalizado com IA." />
+
     <title>QuestFit | AI Fitness RPG</title>
+
     <!-- Google Fonts: Outfit -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,4 +34,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
