@@ -32,6 +32,11 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
   const [selectedEquipment, setSelectedEquipment] = useState<string[]>(userMemory.preferences?.equipment || []);
   const [equipmentSaveSuccess, setEquipmentSaveSuccess] = useState(false);
 
+  // Goal + intensity states
+  const [focusArea, setFocusArea] = useState<'weightLoss' | 'muscleGain' | 'endurance' | 'health'>(userMemory.goals?.focusArea || 'health');
+  const [goalIntensity, setGoalIntensity] = useState<'light' | 'moderate' | 'aggressive'>(userMemory.goals?.intensity || 'moderate');
+  const [goalSaveSuccess, setGoalSaveSuccess] = useState(false);
+
   // Dietary states
   const [dietType, setDietType] = useState<'omnivore' | 'vegetarian' | 'vegan' | 'carnivore' | 'keto' | 'lowcarb'>(userMemory.preferences?.dietType || 'omnivore');
   const [allergiesText, setAllergiesText] = useState(
@@ -55,6 +60,30 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
       userMemory.preferences?.allergies?.join(', ') || '';
     setAllergiesText(savedRestrictions);
   }, [userMemory]);
+
+  const handleSaveGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const updatedMemory: UserMemory = {
+        ...userMemory,
+        goals: {
+          ...userMemory.goals,
+          focusArea,
+          intensity: goalIntensity
+        },
+        lastUpdated: new Date().toISOString()
+      };
+      await saveUserMemory(userProfile.uid, updatedMemory);
+      onMemoryUpdate(updatedMemory);
+      setGoalSaveSuccess(true);
+      setTimeout(() => setGoalSaveSuccess(false), 3000);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSaveDietary = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,9 +290,93 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
           </div>
         </div>
 
-        {/* Right Column: Physical profile and AI Keys */}
+        {/* Right Column: Goal, Physical profile, AI Keys */}
         <div className="lg:col-span-2 space-y-6">
-          
+
+          {/* Card 0: Objetivo + Intensidade */}
+          <div className="glass-panel p-6 rounded-[32px] space-y-6">
+            <div>
+              <h2 className="text-lg font-bold flex items-center gap-2 text-white">
+                <Activity className="w-5 h-5 text-violet-400" />
+                Objetivo & Intensidade
+              </h2>
+              <p className="text-xs text-zinc-400 mt-1">Define o foco dos seus treinos e dieta. A intensidade ajusta o déficit/superávit calórico e o volume dos exercícios.</p>
+            </div>
+
+            <form onSubmit={handleSaveGoal} className="space-y-5">
+              {/* Focus area */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide block">Qual é o seu objetivo principal?</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { id: 'weightLoss',  label: 'Perder Peso',     emoji: '🔥', desc: 'Déficit calórico + treinos queima gordura' },
+                    { id: 'muscleGain',  label: 'Ganhar Músculo',   emoji: '💪', desc: 'Superávit + treinos de hipertrofia' },
+                    { id: 'endurance',   label: 'Resistência',      emoji: '🏃', desc: 'Cardio + resistência muscular' },
+                    { id: 'health',      label: 'Saúde Geral',      emoji: '❤️', desc: 'Manutenção, bem-estar e equilíbrio' },
+                  ] as const).map(opt => {
+                    const sel = focusArea === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setFocusArea(opt.id)}
+                        className={`p-3 rounded-2xl border text-left transition cursor-pointer ${
+                          sel ? 'bg-violet-600/20 border-violet-500' : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-850'
+                        }`}
+                      >
+                        <span className="text-lg leading-none">{opt.emoji}</span>
+                        <p className={`text-xs font-bold mt-1 ${sel ? 'text-violet-300' : 'text-zinc-300'}`}>{opt.label}</p>
+                        <p className="text-[10px] text-zinc-500 mt-0.5 leading-normal">{opt.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Intensity */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide block">Intensidade</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: 'light',      label: 'Leve',       desc: focusArea === 'weightLoss' ? '-250 kcal/dia' : focusArea === 'muscleGain' ? '+150 kcal/dia' : 'Manutenção suave',  color: 'text-sky-400',    border: 'border-sky-500',  bg: 'bg-sky-500/10'  },
+                    { id: 'moderate',   label: 'Moderado',   desc: focusArea === 'weightLoss' ? '-500 kcal/dia' : focusArea === 'muscleGain' ? '+300 kcal/dia' : 'Equilíbrio',        color: 'text-violet-400', border: 'border-violet-500', bg: 'bg-violet-500/10' },
+                    { id: 'aggressive', label: 'Agressivo',  desc: focusArea === 'weightLoss' ? '-750 kcal/dia' : focusArea === 'muscleGain' ? '+500 kcal/dia' : 'Máximo esforço',    color: 'text-orange-400', border: 'border-orange-500', bg: 'bg-orange-500/10' },
+                  ] as const).map(opt => {
+                    const sel = goalIntensity === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setGoalIntensity(opt.id)}
+                        className={`p-3 rounded-2xl border text-center transition cursor-pointer ${
+                          sel ? `${opt.bg} ${opt.border}` : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-850'
+                        }`}
+                      >
+                        <p className={`text-xs font-bold ${sel ? opt.color : 'text-zinc-400'}`}>{opt.label}</p>
+                        <p className="text-[9px] text-zinc-500 mt-0.5">{opt.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl transition duration-150 cursor-pointer text-xs shadow-lg shadow-violet-600/20"
+                >
+                  {loading ? 'Salvando...' : 'Salvar Objetivo'}
+                </button>
+              </div>
+              {goalSaveSuccess && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl font-semibold">
+                  Objetivo e intensidade salvos com sucesso!
+                </div>
+              )}
+            </form>
+          </div>
+
           {/* Card 1: Physical Metrics Form */}
           <div className="glass-panel p-6 rounded-[32px] space-y-6">
             <div>

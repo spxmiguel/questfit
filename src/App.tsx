@@ -7,12 +7,13 @@ import {
   handleIncomingEmailLink,
   getCurrentUser
 } from './services/authService';
-import { 
-  getUserProfile, 
-  getUserMemory, 
-  getQuests, 
+import {
+  getUserProfile,
+  getUserMemory,
+  getQuests,
   getAchievements,
-  syncLocalDataToCloud
+  syncLocalDataToCloud,
+  refreshQuestsLocally
 } from './services/dbService';
 import { checkAndUpdateStreak } from './services/rpgService';
 import { UserProfile, UserMemory, Quest, Achievement } from './types';
@@ -168,8 +169,15 @@ function App() {
       if (cachedProfile && cachedMemory) {
         try {
           setUserProfile(JSON.parse(cachedProfile));
-          setUserMemory(JSON.parse(cachedMemory));
-          if (cachedQuests) setQuests(JSON.parse(cachedQuests));
+          const parsedMemory: UserMemory = JSON.parse(cachedMemory);
+          setUserMemory(parsedMemory);
+          if (cachedQuests) {
+            // Synchronously refresh quest dates before displaying —
+            // prevents showing yesterday's completed quests when opening the app a new day
+            const rawQuests: Quest[] = JSON.parse(cachedQuests);
+            const weightKg = parsedMemory.goals?.currentWeightKg || parsedMemory.physicalProfile?.weightKg;
+            setQuests(refreshQuestsLocally(rawQuests, weightKg));
+          }
           if (cachedAchievements) setAchievements(JSON.parse(cachedAchievements));
           hasCache = true;
           // Turn off loading screen early so UI is responsive

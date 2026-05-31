@@ -17,6 +17,8 @@ export interface UserMemory {
     currentWeightKg?: number;
     weeklyWeightLossTargetKg?: number;
     focusArea?: 'weightLoss' | 'muscleGain' | 'endurance' | 'health';
+    /** How aggressive the approach should be — affects calorie deficit/surplus and workout volume */
+    intensity?: 'light' | 'moderate' | 'aggressive';
   };
   preferences: {
     location?: 'home' | 'gym';

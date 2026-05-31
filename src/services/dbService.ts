@@ -208,6 +208,52 @@ export const getQuests = async (uid: string): Promise<Quest[]> => {
   return defaultQuests;
 };
 
+/**
+ * Synchronous (no DB save) version of checkAndRefreshDailyQuests.
+ * Used in App.tsx to immediately show correct quests from cache before the async DB load,
+ * preventing "yesterday's completed quests" from flashing on a new day.
+ */
+export const refreshQuestsLocally = (quests: Quest[], weightKg?: number): Quest[] => {
+  const todayStr = getLocalDateString();
+  const mondayStr = getMondayISO();
+
+  const hasDailies = quests.some(q => q.category === 'daily');
+  const hasOldDailies = quests.some(q => q.category === 'daily' && !q.id.endsWith(todayStr));
+  const dailyTypes = quests.filter(q => q.category === 'daily').map(q => q.type);
+  const requiredTypes: Quest['type'][] = ['water', 'workout', 'steps', 'nutrition'];
+  const missingDailies = requiredTypes.some(type => !dailyTypes.includes(type));
+  const needsDailyReset = !hasDailies || hasOldDailies || missingDailies;
+
+  const weeklyQuests = quests.filter(q => q.category === 'weekly');
+  const needsWeeklyReset = weeklyQuests.some(q => !q.weekStart || q.weekStart !== mondayStr);
+
+  if (!needsDailyReset && !needsWeeklyReset) return quests;
+
+  let result = [...quests];
+
+  if (needsDailyReset) {
+    const freshDailies = getDefaultQuests(weightKg).filter(q => q.category === 'daily');
+    const todayDailies = quests.filter(q => q.category === 'daily' && q.id.endsWith(todayStr));
+    const mergedDailies = freshDailies.map(fresh => {
+      const existing = todayDailies.find(ext => ext.type === fresh.type);
+      return existing || fresh;
+    });
+    result = [...mergedDailies, ...result.filter(q => q.category !== 'daily')];
+  }
+
+  if (needsWeeklyReset) {
+    const freshWeekly = getDefaultQuests(weightKg).filter(q => q.category === 'weekly');
+    const thisWeekWeekly = weeklyQuests.filter(q => q.weekStart === mondayStr);
+    const mergedWeekly = freshWeekly.map(fresh => {
+      const existing = thisWeekWeekly.find(ext => ext.id === fresh.id);
+      return existing || fresh;
+    });
+    result = [...result.filter(q => q.category !== 'weekly'), ...mergedWeekly];
+  }
+
+  return result;
+};
+
 const checkAndRefreshDailyQuests = async (uid: string, quests: Quest[], todayStr: string, weightKg?: number): Promise<Quest[]> => {
   const mondayStr = getMondayISO();
 
