@@ -17,6 +17,7 @@ import {
 import { checkAndUpdateStreak } from './services/rpgService';
 import { UserProfile, UserMemory, Quest, Achievement } from './types';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getLocalDateString } from './utils/dateUtils';
 
 // UI Components
 import Auth from './components/Auth';
@@ -46,6 +47,7 @@ function App() {
   const [userMemory, setUserMemory] = useState<UserMemory | null>(null);
   const [quests, setQuests] = useState<Quest[]>([]);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [currentDate, setCurrentDate] = useState(() => getLocalDateString());
   
   // Level Up State
   const [levelUpData, setLevelUpData] = useState<{
@@ -82,6 +84,63 @@ function App() {
     });
     return unsub;
   }, []);
+
+  // Automatic daily reset check (at midnight, tab focus, or periodic interval)
+  useEffect(() => {
+    const checkDateChange = async () => {
+      const today = getLocalDateString();
+      if (today !== currentDate) {
+        console.log("Detectada mudança de dia! Atualizando metas de:", currentDate, "para:", today);
+        setCurrentDate(today);
+        
+        if (session) {
+          try {
+            setDataLoading(true);
+            const profile = await getUserProfile(session.uid, session.displayName, session.email);
+            const [updatedProfile, memory, activeQuests, unlockedAchievements] = await Promise.all([
+              checkAndUpdateStreak(session.uid, profile),
+              getUserMemory(session.uid),
+              getQuests(session.uid),
+              getAchievements(session.uid)
+            ]);
+
+            // Save fresh data to local cache
+            localStorage.setItem(`questfit_profile_${session.uid}`, JSON.stringify(updatedProfile));
+            localStorage.setItem(`questfit_memory_${session.uid}`, JSON.stringify(memory));
+            localStorage.setItem(`questfit_quests_${session.uid}`, JSON.stringify(activeQuests));
+            localStorage.setItem(`questfit_achievements_${session.uid}`, JSON.stringify(unlockedAchievements));
+
+            setUserProfile(updatedProfile);
+            setUserMemory(memory);
+            setQuests(activeQuests);
+            setAchievements(unlockedAchievements);
+          } catch (err) {
+            console.error("Erro ao atualizar dados na mudança de dia:", err);
+          } finally {
+            setDataLoading(false);
+          }
+        }
+      }
+    };
+
+    // Check every 10 seconds
+    const interval = setInterval(checkDateChange, 10000);
+
+    // Check when window gains focus or tab becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkDateChange();
+      }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', checkDateChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', checkDateChange);
+    };
+  }, [currentDate, session]);
 
   // Fetch all user specific data when session changes
   useEffect(() => {
