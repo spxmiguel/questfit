@@ -261,3 +261,113 @@ export const sendChatMessageToCoach = async (
     memoryUpdate: extracted.memoryUpdate
   };
 };
+
+export interface MealAnalysisResult {
+  mealName: string;
+  items: string[];
+  calories: number;
+  protein: number;
+}
+
+export const analyzeMealPhoto = async (file: File): Promise<MealAnalysisResult> => {
+  const geminiKey = getStoredGeminiKey();
+  
+  if (!geminiKey) {
+    // Return simulated result based on file name or type
+    await new Promise((resolve) => setTimeout(resolve, 2000)); // Simulate delay
+    
+    // Choose a random or pseudo-random response based on file name to make it feel alive!
+    const name = file.name.toLowerCase();
+    if (name.includes('frango') || name.includes('chicken') || name.includes('peito')) {
+      return {
+        mealName: "Prato de Frango Grelhado com Legumes",
+        items: ["150g de Peito de Frango grelhado", "100g de Brócolis no vapor", "80g de Arroz Integral"],
+        calories: 380,
+        protein: 36
+      };
+    } else if (name.includes('ovo') || name.includes('egg') || name.includes('omelete')) {
+      return {
+        mealName: "Omelete Proteico com Queijo",
+        items: ["3 Ovos caipiras inteiros", "30g de Queijo minas", "Tomate picado e orégano"],
+        calories: 290,
+        protein: 22
+      };
+    } else if (name.includes('carne') || name.includes('carne moida') || name.includes('steak')) {
+      return {
+        mealName: "Grelhado de Carne com Batata Doce",
+        items: ["150g de Patinho moído", "120g de Batata doce assada", "Mix de folhas verdes"],
+        calories: 450,
+        protein: 32
+      };
+    } else if (name.includes('salada') || name.includes('salad')) {
+      return {
+        mealName: "Salada Completa de Atum",
+        items: ["1 Lata de atum ao natural", "Folhas de alface e rúcula", "1/2 Pepino picado", "1 colher de azeite"],
+        calories: 220,
+        protein: 26
+      };
+    }
+    
+    // Default fallback mock
+    return {
+      mealName: "Refeição Completa Estimada",
+      items: ["Porção mista de proteínas (carne/frango/peixe)", "Porção de carboidratos complexos", "Vegetais cozidos"],
+      calories: 420,
+      protein: 30
+    };
+  }
+
+  // Create GoogleGenerativeAI client
+  const genAI = new GoogleGenerativeAI(geminiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  // Convert File to Gemini part format
+  const fileToPart = async (file: File): Promise<{ inlineData: { data: string, mimeType: string } }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        resolve({
+          inlineData: {
+            data: base64Data,
+            mimeType: file.type
+          },
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const imagePart = await fileToPart(file);
+  const prompt = `Analise esta foto de comida. Identifique os itens de alimentos presentes, estime o tamanho das porções e calcule o total aproximado de calorias (kcal) e proteínas (g) para a refeição inteira.
+Responda APENAS com um objeto JSON válido, sem crases, markdown ou qualquer texto extra. O formato do JSON DEVE ser exatamente este:
+{
+  "mealName": "Nome da Refeição em português",
+  "items": ["Item 1 estimado", "Item 2 estimado"],
+  "calories": 450,
+  "protein": 32
+}`;
+
+  try {
+    const result = await model.generateContent([prompt, imagePart]);
+    const responseText = result.response.text().trim();
+    
+    // Attempt parsing. Sometimes LLMs output markdown wraps like \`\`\`json { ... } \`\`\`
+    const cleanJson = responseText
+      .replace(/^```json\s*/i, '')
+      .replace(/```\s*$/, '')
+      .trim();
+
+    const parsed = JSON.parse(cleanJson);
+    return {
+      mealName: parsed.mealName || "Prato Identificado",
+      items: parsed.items || [],
+      calories: Number(parsed.calories) || 0,
+      protein: Number(parsed.protein) || 0
+    };
+  } catch (err: any) {
+    console.error('Error analyzing image with Gemini:', err);
+    throw new Error('Falha ao analisar imagem. Verifique se a sua chave API da Gemini nas Configurações é válida.');
+  }
+};

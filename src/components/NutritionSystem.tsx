@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, UserMemory, ProgressLog } from '../types';
-import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, CheckSquare } from 'lucide-react';
+import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, CheckSquare, Camera, Upload, Image } from 'lucide-react';
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests } from '../services/dbService';
+import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey } from '../services/aiService';
 
 interface NutritionSystemProps {
   userProfile: UserProfile;
@@ -16,6 +17,14 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
   const [todayLog, setTodayLog] = useState<ProgressLog | null>(null);
   const [groceryItems, setGroceryItems] = useState<{ id: string; name: string; checked: boolean }[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Photo Scanner states
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanResult, setScanResult] = useState<MealAnalysisResult | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const hasGeminiKey = !!getStoredGeminiKey();
 
   const todayStr = new Date().toISOString().split('T')[0];
   const weight = userMemory.goals.currentWeightKg || userMemory.goals.targetWeightKg || 75;
@@ -158,6 +167,67 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
     );
   };
 
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+      setScanResult(null);
+      setScanError(null);
+    }
+  };
+
+  const handleAnalyzePhoto = async () => {
+    if (!photoFile) return;
+    setScanLoading(true);
+    setScanError(null);
+    setScanResult(null);
+
+    try {
+      const result = await analyzeMealPhoto(photoFile);
+      setScanResult(result);
+    } catch (err: any) {
+      console.error(err);
+      setScanError(err.message || 'Erro ao processar imagem.');
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const handleLogScanResult = async () => {
+    if (!scanResult) return;
+    setLoading(true);
+    try {
+      const log = await getProgressLogForDate(userProfile.uid, todayStr);
+      
+      const newCals = (log.caloriesConsumed || 0) + scanResult.calories;
+      const newProt = (log.proteinConsumedG || 0) + scanResult.protein;
+
+      const updatedLog: ProgressLog = {
+        ...log,
+        caloriesConsumed: newCals,
+        proteinConsumedG: newProt
+      };
+
+      await saveProgressLog(userProfile.uid, updatedLog);
+      setTodayLog(updatedLog);
+
+      // Award XP for logging nutrition details (+25 XP)
+      const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
+
+      // Clear scanner state
+      setPhotoFile(null);
+      setPhotoPreview(null);
+      setScanResult(null);
+      
+      onNutritionLogged(res.profile, res.unlockedAchievements);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Dynamic meal suggestions based on diet preferences
   const getMealSuggestions = () => {
     if (diet === 'vegetarian') {
@@ -290,6 +360,135 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
                 Logar Refeição (+25 XP)
               </button>
             </form>
+          </div>
+
+          {/* AI Photo Scanner */}
+          <div className="glass-panel p-6 rounded-[32px] space-y-5">
+            <h3 className="font-bold text-sm text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+              <Camera className="w-4 h-4 text-violet-400" />
+              Scanner de Prato (IA)
+            </h3>
+            <p className="text-[11px] text-zinc-400 leading-relaxed">
+              Tire uma foto ou envie uma imagem da sua refeição. A inteligência artificial identificará os alimentos e calculará as calorias e proteínas automaticamente.
+            </p>
+
+            {/* Warning if no Gemini Key */}
+            {!hasGeminiKey && (
+              <div className="p-3 bg-amber-550/10 border border-amber-500/15 text-amber-400 text-[10px] rounded-2xl flex gap-2 leading-relaxed">
+                <Sparkles className="w-4 h-4 flex-shrink-0 text-amber-500 animate-pulse" />
+                <div>
+                  <span className="font-bold block">Modo Simulação Ativo</span>
+                  Chave Gemini não configurada. Inserindo uma imagem, o app simulará a análise para demonstração. Defina a chave nas Configurações para usar IA real.
+                </div>
+              </div>
+            )}
+
+            {/* Photo Dropzone/Selector */}
+            <div className="space-y-4">
+              {!photoPreview ? (
+                <label className="border-2 border-dashed border-zinc-800 hover:border-violet-550/50 bg-zinc-900/30 hover:bg-zinc-900/60 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition group">
+                  <Upload className="w-6 h-6 text-zinc-500 group-hover:text-violet-400 transition transform group-hover:-translate-y-0.5" />
+                  <span className="text-xs font-bold text-zinc-300 group-hover:text-white transition">Selecionar Foto do Prato</span>
+                  <span className="text-[10px] text-zinc-500">PNG, JPG ou tirar foto</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePhotoChange}
+                  />
+                </label>
+              ) : (
+                <div className="space-y-4">
+                  <div className="relative rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 max-h-48 flex items-center justify-center">
+                    <img
+                      src={photoPreview}
+                      alt="Refeição"
+                      className="w-full h-full object-cover max-h-48"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhotoFile(null);
+                        setPhotoPreview(null);
+                        setScanResult(null);
+                        setScanError(null);
+                      }}
+                      className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5 transition text-xs cursor-pointer"
+                    >
+                      Remover
+                    </button>
+                  </div>
+
+                  {scanError && (
+                    <div className="p-3 bg-rose-550/10 border border-rose-500/20 text-rose-450 text-xs rounded-xl font-medium">
+                      {scanError}
+                    </div>
+                  )}
+
+                  {/* Scanned result card */}
+                  {scanResult && (
+                    <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-2xl space-y-3">
+                      <div className="border-b border-zinc-850 pb-2">
+                        <span className="text-[9px] font-bold text-violet-400 uppercase tracking-wide block mb-0.5">Alimento Identificado</span>
+                        <h4 className="text-xs font-bold text-white leading-snug">{scanResult.mealName}</h4>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Porções Estimadas:</span>
+                        <ul className="list-disc list-inside text-[11px] text-zinc-400 space-y-0.5">
+                          {scanResult.items.map((item, idx) => (
+                            <li key={idx}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-850">
+                        <div className="bg-zinc-950 p-2 rounded-xl border border-zinc-900 text-center">
+                          <span className="text-[9px] font-bold text-zinc-500 uppercase block mb-0.5">Calorias</span>
+                          <span className="text-xs font-extrabold text-orange-400">{scanResult.calories} kcal</span>
+                        </div>
+                        <div className="bg-zinc-950 p-2 rounded-xl border border-zinc-900 text-center">
+                          <span className="text-[9px] font-bold text-zinc-500 uppercase block mb-0.5">Proteínas</span>
+                          <span className="text-xs font-extrabold text-violet-400">{scanResult.protein} g</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!scanResult && (
+                    <button
+                      type="button"
+                      onClick={handleAnalyzePhoto}
+                      disabled={scanLoading}
+                      className="w-full py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-bold rounded-xl transition duration-150 cursor-pointer text-xs flex items-center justify-center gap-2 shadow-lg shadow-violet-650/20"
+                    >
+                      {scanLoading ? (
+                        <>
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          Analisando com Visão IA...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Analisar Refeição
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {scanResult && (
+                    <button
+                      type="button"
+                      onClick={handleLogScanResult}
+                      disabled={loading}
+                      className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition duration-150 cursor-pointer text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-600/20"
+                    >
+                      Logar Refeição Analisada (+25 XP)
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Guidelines warning */}
