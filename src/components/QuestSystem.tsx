@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Quest, UserProfile, ProgressLog } from '../types';
 import { saveQuest, saveProgressLog, getProgressLogForDate } from '../services/dbService';
 import { awardXp } from '../services/rpgService';
+import { checkLevelUp, getTitleForLevel } from '../utils/xpCalc';
 import { CheckCircle, Dumbbell, Compass, Flame, Droplet, Plus, Minus, Footprints, Carrot, HelpCircle, Trophy } from 'lucide-react';
 
 interface QuestProps {
@@ -20,8 +21,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  const handleQuestCompletion = async (quest: Quest, updatedProgress: number) => {
-    setLoading(true);
+  const handleQuestCompletion = (quest: Quest, updatedProgress: number) => {
     try {
       const isNowCompleted = updatedProgress >= quest.target;
       const wasCompleted = quest.completed;
@@ -39,44 +39,31 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
         xpToAward = quest.xpReward;
       }
 
-      // Save quest to db
-      await saveQuest(userProfile.uid, updatedQuest);
-
-      // Save action to today's progress log
-      const log = await getProgressLogForDate(userProfile.uid, todayStr);
-      let updatedLog: ProgressLog = { ...log };
-
-      if (quest.type === 'water') {
-        updatedLog.waterIntakeMl = updatedQuest.progress;
-      } else if (quest.type === 'steps') {
-        updatedLog.stepsCompleted = updatedQuest.progress;
-      } else if (quest.type === 'workout' && quest.category === 'daily') {
-        updatedLog.workoutCompleted = isNowCompleted;
-      }
-
+      // Calculate local profile updates immediately
+      let finalProfile = { ...userProfile };
       if (xpToAward > 0) {
-        updatedLog.xpEarned += xpToAward;
-      }
-      await saveProgressLog(userProfile.uid, updatedLog);
-
-      // Handle XP award & level up
-      let finalProfile = userProfile;
-      let unlockedAchs: any[] = [];
-      if (xpToAward > 0) {
-        const res = await awardXp(userProfile.uid, userProfile, xpToAward, quest.category === 'daily' && quest.type === 'workout' ? 'workout' : 'quest');
-        finalProfile = res.profile;
-        unlockedAchs = res.unlockedAchievements;
+        const updatedXp = finalProfile.xp + xpToAward;
+        const levelCheck = checkLevelUp(finalProfile.level, updatedXp);
+        finalProfile = {
+          ...finalProfile,
+          level: levelCheck.newLevel,
+          xp: levelCheck.remainingXp,
+          xpNeededForNextLevel: levelCheck.xpNeeded,
+          title: getTitleForLevel(levelCheck.newLevel)
+        };
       }
 
-      // Trigger UI callback
-      const updatedQuests = quests.map(q => q.id === quest.id ? updatedQuest : q);
+      // Compute updated quests array immediately
+      let updatedQuests = quests.map(q => q.id === quest.id ? updatedQuest : q);
       
       // Update weekly quests progress based on completed daily workouts
+      let weeklyWorkouts = updatedQuests.find(q => q.id === 'weekly-workouts');
+      let weeklyCompletedNow = false;
       if (quest.type === 'workout' && quest.category === 'daily' && isNowCompleted && !wasCompleted) {
-        const weeklyWorkouts = updatedQuests.find(q => q.id === 'weekly-workouts');
         if (weeklyWorkouts && !weeklyWorkouts.completed) {
           const newWeeklyProgress = weeklyWorkouts.progress + 1;
           const weeklyCompleted = newWeeklyProgress >= weeklyWorkouts.target;
+          weeklyCompletedNow = weeklyCompleted;
           
           const updatedWeekly: Quest = {
             ...weeklyWorkouts,
@@ -85,22 +72,79 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
             completedDate: weeklyCompleted ? new Date().toISOString() : undefined
           };
           
-          await saveQuest(userProfile.uid, updatedWeekly);
-          updatedQuests[updatedQuests.findIndex(q => q.id === 'weekly-workouts')] = updatedWeekly;
+          updatedQuests = updatedQuests.map(q => q.id === 'weekly-workouts' ? updatedWeekly : q);
+          weeklyWorkouts = updatedWeekly;
 
           if (weeklyCompleted) {
-            const resWeekly = await awardXp(userProfile.uid, finalProfile, weeklyWorkouts.xpReward, 'quest');
-            finalProfile = resWeekly.profile;
-            unlockedAchs = [...unlockedAchs, ...resWeekly.unlockedAchievements];
+            const updatedXp = finalProfile.xp + weeklyWorkouts.xpReward;
+            const levelCheck = checkLevelUp(finalProfile.level, updatedXp);
+            finalProfile = {
+              ...finalProfile,
+              level: levelCheck.newLevel,
+              xp: levelCheck.remainingXp,
+              xpNeededForNextLevel: levelCheck.xpNeeded,
+              title: getTitleForLevel(levelCheck.newLevel)
+            };
           }
         }
       }
 
-      onQuestUpdate(updatedQuests, finalProfile, unlockedAchs);
+      // Trigger UI callback IMMEDIATELY for responsive feeling
+      onQuestUpdate(updatedQuests, finalProfile, []);
+
+      // Fire off background save operations (async, non-blocking)
+      (async () => {
+        try {
+          // 1. Save quest
+          await saveQuest(userProfile.uid, updatedQuest);
+
+          // 2. Save action to today's progress log
+          const log = await getProgressLogForDate(userProfile.uid, todayStr);
+          let updatedLog: ProgressLog = { ...log };
+
+          if (quest.type === 'water') {
+            updatedLog.waterIntakeMl = updatedQuest.progress;
+          } else if (quest.type === 'steps') {
+            updatedLog.stepsCompleted = updatedQuest.progress;
+          } else if (quest.type === 'workout' && quest.category === 'daily') {
+            updatedLog.workoutCompleted = isNowCompleted;
+          }
+
+          if (xpToAward > 0) {
+            updatedLog.xpEarned += xpToAward;
+          }
+          await saveProgressLog(userProfile.uid, updatedLog);
+
+          // 3. Handle XP award & achievements on the DB
+          let currentProfile = finalProfile;
+          let allUnlockedAchs: any[] = [];
+
+          if (xpToAward > 0) {
+            const res = await awardXp(userProfile.uid, userProfile, xpToAward, quest.category === 'daily' && quest.type === 'workout' ? 'workout' : 'quest');
+            currentProfile = res.profile;
+            allUnlockedAchs = [...allUnlockedAchs, ...res.unlockedAchievements];
+          }
+
+          // 4. Handle weekly quest save
+          if (quest.type === 'workout' && quest.category === 'daily' && isNowCompleted && !wasCompleted && weeklyWorkouts) {
+            await saveQuest(userProfile.uid, weeklyWorkouts);
+            if (weeklyCompletedNow) {
+              const resWeekly = await awardXp(userProfile.uid, currentProfile, weeklyWorkouts.xpReward, 'quest');
+              currentProfile = resWeekly.profile;
+              allUnlockedAchs = [...allUnlockedAchs, ...resWeekly.unlockedAchievements];
+            }
+          }
+
+          // If background check unlocked any achievements or updated profile further, refresh UI
+          if (allUnlockedAchs.length > 0 || currentProfile.level > finalProfile.level) {
+            onQuestUpdate(updatedQuests, currentProfile, allUnlockedAchs);
+          }
+        } catch (backgroundErr) {
+          console.error('Background quest sync failed:', backgroundErr);
+        }
+      })();
     } catch (err) {
-      console.error('Failed to update quest:', err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to update quest (optimistic):', err);
     }
   };
 

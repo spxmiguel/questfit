@@ -50,6 +50,19 @@ const withTimeout = <T>(promise: Promise<T>, fallbackValue: T): Promise<T> => {
 export const getUserProfile = async (uid: string, defaultName?: string, defaultEmail?: string): Promise<UserProfile> => {
   const cached = getLocal<UserProfile>(`questfit_profile_${uid}`);
 
+  if (cached) {
+    // Revalidate in background
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, 'users', uid);
+      getDoc(docRef).then((snap) => {
+        if (snap.exists()) {
+          setLocal(`questfit_profile_${uid}`, snap.data() as UserProfile);
+        }
+      }).catch(() => {});
+    }
+    return cached;
+  }
+
   if (isFirebaseEnabled && db) {
     const docRef = doc(db, 'users', uid);
     const snap = await withTimeout(getDoc(docRef), null);
@@ -59,8 +72,6 @@ export const getUserProfile = async (uid: string, defaultName?: string, defaultE
       return profile;
     }
   }
-
-  if (cached) return cached;
 
   // Create default profile if not exists
   const defaultProfile: UserProfile = {
@@ -82,7 +93,9 @@ export const getUserProfile = async (uid: string, defaultName?: string, defaultE
 export const saveUserProfile = async (uid: string, profile: UserProfile): Promise<void> => {
   setLocal(`questfit_profile_${uid}`, profile);
   if (isFirebaseEnabled && db) {
-    await setDoc(doc(db, 'users', uid), profile);
+    setDoc(doc(db, 'users', uid), profile).catch(err => {
+      console.warn('Failed to save profile to cloud:', err);
+    });
   }
 };
 
@@ -91,6 +104,19 @@ export const saveUserProfile = async (uid: string, profile: UserProfile): Promis
 // ----------------------------------------------------
 export const getUserMemory = async (uid: string): Promise<UserMemory> => {
   const cached = getLocal<UserMemory>(`questfit_memory_${uid}`);
+
+  if (cached) {
+    // Revalidate in background
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, 'memory', uid);
+      getDoc(docRef).then((snap) => {
+        if (snap.exists()) {
+          setLocal(`questfit_memory_${uid}`, snap.data() as UserMemory);
+        }
+      }).catch(() => {});
+    }
+    return cached;
+  }
 
   if (isFirebaseEnabled && db) {
     const docRef = doc(db, 'memory', uid);
@@ -101,8 +127,6 @@ export const getUserMemory = async (uid: string): Promise<UserMemory> => {
       return memory;
     }
   }
-
-  if (cached) return cached;
 
   // Create empty default memory structure
   const defaultMemory: UserMemory = {
@@ -119,7 +143,9 @@ export const getUserMemory = async (uid: string): Promise<UserMemory> => {
 export const saveUserMemory = async (uid: string, memory: UserMemory): Promise<void> => {
   setLocal(`questfit_memory_${uid}`, memory);
   if (isFirebaseEnabled && db) {
-    await setDoc(doc(db, 'memory', uid), memory);
+    setDoc(doc(db, 'memory', uid), memory).catch(err => {
+      console.warn('Failed to save memory to cloud:', err);
+    });
   }
 };
 
@@ -130,10 +156,24 @@ export const getQuests = async (uid: string): Promise<Quest[]> => {
   const todayStr = new Date().toISOString().split('T')[0];
   const cached = getLocal<Quest[]>(`questfit_quests_${uid}`);
   
-  // Resolve memory locally to avoid nested Firestore hangs
-  const memory = await getUserMemory(uid);
-  const weight = memory.goals?.currentWeightKg || memory.goals?.targetWeightKg || 70;
+  const cachedMemory = getLocal<UserMemory>(`questfit_memory_${uid}`);
+  const weight = cachedMemory?.goals?.currentWeightKg || cachedMemory?.goals?.targetWeightKg || 70;
   
+  if (cached && cached.length > 0) {
+    // Revalidate in background
+    if (isFirebaseEnabled && db) {
+      const colRef = collection(db, 'users', uid, 'quests');
+      getDocs(colRef).then((snap) => {
+        if (!snap.empty) {
+          const quests: Quest[] = [];
+          snap.forEach(doc => quests.push(doc.data() as Quest));
+          setLocal(`questfit_quests_${uid}`, quests);
+        }
+      }).catch(() => {});
+    }
+    return checkAndRefreshDailyQuests(uid, cached, todayStr, weight);
+  }
+
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'quests');
     const snap = await withTimeout(getDocs(colRef), null);
@@ -147,10 +187,6 @@ export const getQuests = async (uid: string): Promise<Quest[]> => {
     }
   }
 
-  if (cached && cached.length > 0) {
-    return checkAndRefreshDailyQuests(uid, cached, todayStr, weight);
-  }
-
   // Default quests setup if empty
   const defaultQuests = getDefaultQuests(weight);
   await saveAllQuests(uid, defaultQuests);
@@ -161,10 +197,23 @@ const checkAndRefreshDailyQuests = async (uid: string, quests: Quest[], todayStr
   const hasDailies = quests.some(q => q.category === 'daily');
   const hasOldDailies = quests.some(q => q.category === 'daily' && !q.id.endsWith(todayStr));
   
-  if (!hasDailies || hasOldDailies) {
+  // Verify that all required daily quest types are present
+  const dailyTypes = quests.filter(q => q.category === 'daily').map(q => q.type);
+  const requiredTypes: Quest['type'][] = ['water', 'workout', 'steps', 'nutrition'];
+  const missingDailies = requiredTypes.some(type => !dailyTypes.includes(type));
+
+  if (!hasDailies || hasOldDailies || missingDailies) {
     const preservedQuests = quests.filter(q => q.category !== 'daily');
     const freshDailies = getDefaultQuests(weightKg).filter(q => q.category === 'daily');
-    const newQuestList = [...freshDailies, ...preservedQuests];
+    
+    // Merge to preserve today's progress if daily quests are already present for today
+    const todayDailies = quests.filter(q => q.category === 'daily' && q.id.endsWith(todayStr));
+    const mergedDailies = freshDailies.map(fresh => {
+      const existing = todayDailies.find(ext => ext.type === fresh.type);
+      return existing || fresh;
+    });
+
+    const newQuestList = [...mergedDailies, ...preservedQuests];
     await saveAllQuests(uid, newQuestList);
     return newQuestList;
   }
@@ -182,7 +231,9 @@ export const saveQuest = async (uid: string, quest: Quest): Promise<void> => {
   setLocal(`questfit_quests_${uid}`, quests);
 
   if (isFirebaseEnabled && db) {
-    await setDoc(doc(db, 'users', uid, 'quests', quest.id), quest);
+    setDoc(doc(db, 'users', uid, 'quests', quest.id), quest).catch(err => {
+      console.warn('Failed to save quest to cloud:', err);
+    });
   }
 };
 
@@ -194,7 +245,9 @@ export const saveAllQuests = async (uid: string, quests: Quest[]): Promise<void>
       const docRef = doc(db, 'users', uid, 'quests', q.id);
       batch.set(docRef, q);
     });
-    await batch.commit();
+    batch.commit().catch(err => {
+      console.warn('Failed to save all quests to cloud:', err);
+    });
   }
 };
 
@@ -203,6 +256,22 @@ export const saveAllQuests = async (uid: string, quests: Quest[]): Promise<void>
 // ----------------------------------------------------
 export const getProgressLogs = async (uid: string): Promise<ProgressLog[]> => {
   const cached = getLocal<ProgressLog[]>(`questfit_progress_${uid}`) || [];
+
+  if (cached && cached.length > 0) {
+    // Revalidate in background
+    if (isFirebaseEnabled && db) {
+      const colRef = collection(db, 'users', uid, 'progress_logs');
+      const q = query(colRef, orderBy('date', 'asc'));
+      getDocs(q).then((snap) => {
+        if (!snap.empty) {
+          const logs: ProgressLog[] = [];
+          snap.forEach(doc => logs.push(doc.data() as ProgressLog));
+          setLocal(`questfit_progress_${uid}`, logs.sort((a, b) => a.date.localeCompare(b.date)));
+        }
+      }).catch(() => {});
+    }
+    return cached.sort((a, b) => a.date.localeCompare(b.date));
+  }
 
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'progress_logs');
@@ -219,7 +288,7 @@ export const getProgressLogs = async (uid: string): Promise<ProgressLog[]> => {
     }
   }
 
-  return cached.sort((a, b) => a.date.localeCompare(b.date));
+  return [];
 };
 
 export const getProgressLogForDate = async (uid: string, dateStr: string): Promise<ProgressLog> => {
@@ -249,7 +318,9 @@ export const saveProgressLog = async (uid: string, log: ProgressLog): Promise<vo
   setLocal(`questfit_progress_${uid}`, logs);
 
   if (isFirebaseEnabled && db) {
-    await setDoc(doc(db, 'users', uid, 'progress_logs', log.id), log);
+    setDoc(doc(db, 'users', uid, 'progress_logs', log.id), log).catch(err => {
+      console.warn('Failed to save progress log to cloud:', err);
+    });
   }
 };
 
@@ -258,6 +329,21 @@ export const saveProgressLog = async (uid: string, log: ProgressLog): Promise<vo
 // ----------------------------------------------------
 export const getAchievements = async (uid: string): Promise<Achievement[]> => {
   const cached = getLocal<Achievement[]>(`questfit_achievements_${uid}`);
+
+  if (cached) {
+    // Revalidate in background
+    if (isFirebaseEnabled && db) {
+      const colRef = collection(db, 'users', uid, 'achievements');
+      getDocs(colRef).then((snap) => {
+        if (!snap.empty) {
+          const achs: Achievement[] = [];
+          snap.forEach(doc => achs.push(doc.data() as Achievement));
+          setLocal(`questfit_achievements_${uid}`, achs);
+        }
+      }).catch(() => {});
+    }
+    return cached;
+  }
 
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'achievements');
@@ -271,8 +357,6 @@ export const getAchievements = async (uid: string): Promise<Achievement[]> => {
       return achs;
     }
   }
-
-  if (cached) return cached;
 
   const defaults = getDefaultAchievements();
   await saveAllAchievements(uid, defaults);
@@ -290,7 +374,9 @@ export const saveAchievement = async (uid: string, ach: Achievement): Promise<vo
   setLocal(`questfit_achievements_${uid}`, achs);
 
   if (isFirebaseEnabled && db) {
-    await setDoc(doc(db, 'users', uid, 'achievements', ach.id), ach);
+    setDoc(doc(db, 'users', uid, 'achievements', ach.id), ach).catch(err => {
+      console.warn('Failed to save achievement to cloud:', err);
+    });
   }
 };
 
@@ -302,7 +388,9 @@ export const saveAllAchievements = async (uid: string, achs: Achievement[]): Pro
       const docRef = doc(db, 'users', uid, 'achievements', a.id);
       batch.set(docRef, a);
     });
-    await batch.commit();
+    batch.commit().catch(err => {
+      console.warn('Failed to save all achievements to cloud:', err);
+    });
   }
 };
 
@@ -311,6 +399,22 @@ export const saveAllAchievements = async (uid: string, achs: Achievement[]): Pro
 // ----------------------------------------------------
 export const getChatHistory = async (uid: string): Promise<ChatMessage[]> => {
   const cached = getLocal<ChatMessage[]>(`questfit_chat_${uid}`) || [];
+
+  if (cached && cached.length > 0) {
+    // Revalidate in background
+    if (isFirebaseEnabled && db) {
+      const colRef = collection(db, 'users', uid, 'chat_history');
+      const q = query(colRef, orderBy('timestamp', 'asc'));
+      getDocs(q).then((snap) => {
+        if (!snap.empty) {
+          const msgs: ChatMessage[] = [];
+          snap.forEach(doc => msgs.push(doc.data() as ChatMessage));
+          setLocal(`questfit_chat_${uid}`, msgs);
+        }
+      }).catch(() => {});
+    }
+    return cached;
+  }
 
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'chat_history');
@@ -326,7 +430,7 @@ export const getChatHistory = async (uid: string): Promise<ChatMessage[]> => {
     }
   }
 
-  return cached;
+  return [];
 };
 
 export const addChatMessage = async (uid: string, msg: ChatMessage): Promise<void> => {
@@ -335,7 +439,9 @@ export const addChatMessage = async (uid: string, msg: ChatMessage): Promise<voi
   setLocal(`questfit_chat_${uid}`, history);
 
   if (isFirebaseEnabled && db) {
-    await setDoc(doc(db, 'users', uid, 'chat_history', msg.id), msg);
+    setDoc(doc(db, 'users', uid, 'chat_history', msg.id), msg).catch(err => {
+      console.warn('Failed to save chat message to cloud:', err);
+    });
   }
 };
 
@@ -343,12 +449,17 @@ export const clearChatHistory = async (uid: string): Promise<void> => {
   localStorage.removeItem(`questfit_chat_${uid}`);
   if (isFirebaseEnabled && db) {
     const colRef = collection(db, 'users', uid, 'chat_history');
-    const snap = await getDocs(colRef);
-    const batch = writeBatch(db);
-    snap.forEach(doc => {
-      batch.delete(doc.ref);
+    getDocs(colRef).then((snap) => {
+      const batch = writeBatch(db!);
+      snap.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      batch.commit().catch(err => {
+        console.warn('Failed to clear chat history from cloud:', err);
+      });
+    }).catch(err => {
+      console.warn('Failed to fetch chat history to clear:', err);
     });
-    await batch.commit();
   }
 };
 
