@@ -10,7 +10,9 @@ import {
   Home, 
   ShieldAlert, 
   X,
-  Sparkles
+  Sparkles,
+  Compass,
+  Carrot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -41,7 +43,9 @@ export default function Layout({
   
   const menuItems = [
     { id: 'dashboard', label: 'Painel', icon: Home },
-    { id: 'quests', label: 'Quests', icon: Dumbbell },
+    { id: 'quests', label: 'Quests', icon: Compass },
+    { id: 'workouts', label: 'Treinos', icon: Dumbbell },
+    { id: 'nutrition', label: 'Nutrição', icon: Carrot },
     { id: 'chat', label: 'Coach IA', icon: MessageSquare },
     { id: 'analytics', label: 'Evolução', icon: LineChart },
     { id: 'rpg', label: 'Ascensão', icon: Trophy },
@@ -133,7 +137,7 @@ export default function Layout({
       </main>
 
       {/* Mobile Bottom Navigation Bar */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-zinc-900/90 border-t border-zinc-800/80 py-2.5 px-4 flex justify-around items-center z-30 backdrop-blur-md">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-zinc-900/90 border-t border-zinc-800/80 py-2.5 px-4 flex gap-5 overflow-x-auto scrollbar-none z-30 backdrop-blur-md justify-start">
         {menuItems.map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -142,7 +146,7 @@ export default function Layout({
               key={item.id}
               type="button"
               onClick={() => onSelectTab(item.id)}
-              className={`flex flex-col items-center gap-1 cursor-pointer transition ${
+              className={`flex flex-col items-center gap-1 flex-shrink-0 min-w-[56px] cursor-pointer transition ${
                 isActive ? 'text-violet-400 font-bold' : 'text-zinc-500'
               }`}
             >

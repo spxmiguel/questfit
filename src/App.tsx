@@ -18,6 +18,8 @@ import AICoachChat from './components/AICoachChat';
 import ProgressAnalytics from './components/ProgressAnalytics';
 import RPGProgression from './components/RPGProgression';
 import Settings from './components/Settings';
+import FitnessPlans from './components/FitnessPlans';
+import NutritionSystem from './components/NutritionSystem';
 
 import { Dumbbell } from 'lucide-react';
 
@@ -211,6 +213,22 @@ function App() {
             userProfile={userProfile} 
             quests={quests} 
             onQuestUpdate={handleQuestUpdate} 
+          />
+        );
+      case 'workouts':
+        return (
+          <FitnessPlans
+            userProfile={userProfile}
+            userMemory={userMemory}
+            onWorkoutCompleted={(profile, achs) => handleQuestUpdate(quests, profile, achs)}
+          />
+        );
+      case 'nutrition':
+        return (
+          <NutritionSystem
+            userProfile={userProfile}
+            userMemory={userMemory}
+            onNutritionLogged={(profile, achs) => handleQuestUpdate(quests, profile, achs)}
           />
         );
       case 'chat':
