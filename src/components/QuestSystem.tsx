@@ -375,27 +375,26 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
             </form>
           </div>
 
-          {/* Nutrition card */}
+          {/* Nutrition card — auto-detected via Nutrição page food logging */}
           <div className="glass-panel p-6 rounded-[32px] space-y-4">
             <h3 className="font-bold text-sm text-zinc-400 uppercase tracking-wider flex items-center gap-2">
               <Carrot className="w-4 h-4 text-amber-500" />
               Nutrição Saudável
             </h3>
-            <button
-              type="button"
-              onClick={handleCompleteVeggie}
-              disabled={loading}
-              className={`w-full py-3 border font-bold rounded-2xl transition duration-200 cursor-pointer text-xs flex items-center justify-center gap-2 active:scale-[0.97] ${
-                quests.find(q => q.type === 'nutrition' && q.category === 'daily')?.completed
-                  ? 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-amber-600/10 border-amber-500/20 text-amber-400 active:bg-amber-600/15 md:hover:bg-amber-600/20'
-              }`}
-            >
-              <CheckCircle className="w-4 h-4" />
-              {quests.find(q => q.type === 'nutrition' && q.category === 'daily')?.completed
-                ? 'Legumes ingeridos! (+50 XP)'
-                : 'Ingeri vegetais hoje'}
-            </button>
+            {(() => {
+              const nutritionQuest = quests.find(q => q.type === 'nutrition' && q.category === 'daily');
+              return nutritionQuest?.completed ? (
+                <div className="w-full py-3 border border-emerald-500/30 bg-emerald-600/10 text-emerald-400 font-bold rounded-2xl text-xs flex items-center justify-center gap-2">
+                  <CheckCircle className="w-4 h-4" />
+                  Refeição registrada hoje! (+50 XP)
+                </div>
+              ) : (
+                <div className="w-full py-3 border border-zinc-800 bg-zinc-900/40 text-zinc-500 font-semibold rounded-2xl text-xs flex items-center justify-center gap-2">
+                  <Carrot className="w-4 h-4" />
+                  Registre uma refeição em <span className="text-amber-400 ml-1">Nutrição</span> para completar
+                </div>
+              );
+            })()}
           </div>
 
           {/* Log Workout Button */}

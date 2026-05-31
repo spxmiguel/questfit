@@ -24,6 +24,9 @@ export interface UserMemory {
     timeOfDay?: 'morning' | 'afternoon' | 'evening';
     dietType?: 'omnivore' | 'vegetarian' | 'vegan' | 'carnivore' | 'keto' | 'lowcarb';
     allergies?: string[];
+    /** Free-text field — user writes food dislikes/restrictions in natural language.
+     *  Passed raw to the AI so it can interpret nuance ("odeio legumes", "frutas raramente"). */
+    foodRestrictionsRaw?: string;
     dislikedExercises?: string[];
   };
   healthConstraints: {

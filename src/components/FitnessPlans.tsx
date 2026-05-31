@@ -497,8 +497,10 @@ export default function FitnessPlans({ userProfile, userMemory, onWorkoutComplet
 
       saveUserMemory(userProfile.uid, updatedMemory);
       onMemoryUpdate(updatedMemory);
-      
-      showBannerNotification(`"${exerciseName}" descurtido! O Coach removeu este exercício dos seus treinos futuros.`);
+      // Bump the day variant so the workout immediately regenerates with the
+      // disliked exercise filtered out — user sees a fresh set right away
+      handleRegenerateWorkout();
+      showBannerNotification(`"${exerciseName}" removido! Treino atualizado automaticamente.`);
     } catch (e) {
       console.error(e);
     }

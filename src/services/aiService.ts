@@ -448,10 +448,11 @@ export const regenerateMealSuggestion = async (
   currentDesc: string,
   instruction: string,
   dietType: string,
-  focus: string
+  focus: string,
+  restrictions?: string   // free-text food restrictions from user memory
 ): Promise<string> => {
   const geminiKey = getStoredGeminiKey();
-  
+
   if (!geminiKey) {
     console.log('Gemini API Key missing. Returning simulated customized meal.');
     return new Promise((resolve) => {
@@ -464,15 +465,19 @@ export const regenerateMealSuggestion = async (
   const genAI = new GoogleGenerativeAI(geminiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+  const restrictionsBlock = restrictions?.trim()
+    ? `\nIMPORTANTE — Restrições alimentares permanentes do usuário (NUNCA inclua esses alimentos, mesmo que a instrução não mencione):\n"${restrictions.trim()}"\n`
+    : '';
+
   const prompt = `Você é um nutricionista esportivo especializado.
-O usuário está seguindo uma dieta de tipo: ${dietType} com o objetivo principal de: ${focus}.
+O usuário está seguindo uma dieta de tipo: ${dietType} com o objetivo principal de: ${focus}.${restrictionsBlock}
 Ele recebeu a seguinte sugestão de refeição para o "${mealName}":
 "${currentDesc}"
 
 No entanto, o usuário solicitou uma mudança com a seguinte instrução:
 "${instruction}"
 
-Crie uma nova sugestão de refeição saudável, nutritiva e adequada para o "${mealName}" que atenda a essa instrução.
+Crie uma nova sugestão de refeição saudável, nutritiva e adequada para o "${mealName}" que atenda a essa instrução e respeite todas as restrições alimentares acima.
 Importante: Forneça como resposta APENAS a descrição curta da nova refeição em português (1 ou 2 frases curtas), no mesmo estilo da anterior. Não inclua introduções, explicações, aspas ou títulos.`;
 
   try {

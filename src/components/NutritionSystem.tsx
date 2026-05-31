@@ -153,12 +153,17 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
     
     try {
       const meal = meals[index];
+      const restrictions =
+        userMemory.preferences?.foodRestrictionsRaw ||
+        userMemory.preferences?.allergies?.join(', ') ||
+        '';
       const newDesc = await regenerateMealSuggestion(
         meal.name,
         meal.desc,
         customInstruction.trim(),
         diet,
-        focus
+        focus,
+        restrictions
       );
       
       const updatedMeals = meals.map((m, i) => i === index ? { ...m, desc: newDesc } : m);
@@ -298,9 +303,20 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
             loggedFoods: [...(log.loggedFoods || []), newFood]
           };
           await saveProgressLog(userProfile.uid, finalLog);
+
+          // Auto-complete the daily nutrition quest when food is logged
+          const activeQuests = await getQuests(userProfile.uid);
+          const nutritionQuest = activeQuests.find(q => q.type === 'nutrition' && q.category === 'daily');
+          if (nutritionQuest && !nutritionQuest.completed) {
+            await saveQuest(userProfile.uid, {
+              ...nutritionQuest,
+              progress: 1,
+              completed: true,
+              completedDate: new Date().toISOString()
+            });
+          }
+
           const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
-          
-          // Re-update if anything changed on server (e.g. achievements)
           onNutritionLogged(res.profile, res.unlockedAchievements);
         } catch (err) {
           console.error('Background log intake failed:', err);
@@ -443,6 +459,19 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
             loggedFoods: [...(log.loggedFoods || []), newFood]
           };
           await saveProgressLog(userProfile.uid, finalLog);
+
+          // Auto-complete the daily nutrition quest on scan/photo log
+          const activeQuests = await getQuests(userProfile.uid);
+          const nutritionQuest = activeQuests.find(q => q.type === 'nutrition' && q.category === 'daily');
+          if (nutritionQuest && !nutritionQuest.completed) {
+            await saveQuest(userProfile.uid, {
+              ...nutritionQuest,
+              progress: 1,
+              completed: true,
+              completedDate: new Date().toISOString()
+            });
+          }
+
           const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
           onNutritionLogged(res.profile, res.unlockedAchievements);
         } catch (err) {

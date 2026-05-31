@@ -34,7 +34,11 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
 
   // Dietary states
   const [dietType, setDietType] = useState<'omnivore' | 'vegetarian' | 'vegan' | 'carnivore' | 'keto' | 'lowcarb'>(userMemory.preferences?.dietType || 'omnivore');
-  const [allergiesText, setAllergiesText] = useState(userMemory.preferences?.allergies?.join(', ') || '');
+  const [allergiesText, setAllergiesText] = useState(
+    userMemory.preferences?.foodRestrictionsRaw ||
+    userMemory.preferences?.allergies?.join(', ') ||
+    ''
+  );
   const [dietSaveSuccess, setDietSaveSuccess] = useState(false);
 
   useEffect(() => {
@@ -46,26 +50,29 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
     if (userMemory.preferences?.dietType) {
       setDietType(userMemory.preferences.dietType);
     }
-    if (userMemory.preferences?.allergies) {
-      setAllergiesText(userMemory.preferences.allergies.join(', '));
-    }
+    const savedRestrictions =
+      userMemory.preferences?.foodRestrictionsRaw ||
+      userMemory.preferences?.allergies?.join(', ') || '';
+    setAllergiesText(savedRestrictions);
   }, [userMemory]);
 
   const handleSaveDietary = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
+      // Store raw text (for AI interpretation) + also parse into array (for backward compat with chips UI)
       const allergiesList = allergiesText
-        .split(',')
+        .split(/[,\.\n]/)
         .map(item => item.trim())
-        .filter(item => item.length > 0);
+        .filter(item => item.length > 2);
 
       const updatedMemory: UserMemory = {
         ...userMemory,
         preferences: {
           ...userMemory.preferences,
           dietType,
-          allergies: allergiesList
+          allergies: allergiesList,
+          foodRestrictionsRaw: allergiesText.trim()
         },
         lastUpdated: new Date().toISOString()
       };
@@ -513,18 +520,18 @@ export default function Settings({ userProfile, userMemory, onMemoryUpdate }: Se
 
               <div className="space-y-1.5">
                 <label htmlFor="allergies-input" className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide block">
-                  Alimentos que você NÃO come (separados por vírgula)
+                  Restrições &amp; Aversões Alimentares (texto livre — a IA interpreta)
                 </label>
                 <textarea
                   id="allergies-input"
-                  rows={2}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-3 text-white focus:outline-none focus:ring-1 focus:ring-violet-500 text-xs placeholder-zinc-650"
-                  placeholder="Ex: lactose, amendoim, coentro, banana, soja"
+                  rows={3}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-3 text-white focus:outline-none focus:ring-1 focus:ring-violet-500 text-xs placeholder-zinc-600 leading-relaxed"
+                  placeholder={'Ex: Odeio legumes e verduras. Frutas como raramente. Não como ovos de jeito nenhum. Tenho alergia a lactose e amendoim.'}
                   value={allergiesText}
                   onChange={(e) => setAllergiesText(e.target.value)}
                 />
                 <p className="text-[10px] text-zinc-500 leading-normal">
-                  Insira alergias ou alimentos indesejados. O Coach usará isso para evitar sugerir estes alimentos.
+                  Escreva em suas próprias palavras. A IA vai interpretar e nunca mais vai sugerir esses alimentos no Cardápio e no Ajustar.
                 </p>
               </div>
 

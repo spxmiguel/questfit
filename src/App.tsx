@@ -501,10 +501,16 @@ function App() {
             userProfile={userProfile}
             userMemory={userMemory}
             onNutritionLogged={(profile, achs) => {
-              // Always read the freshest quest state from localStorage
+              // Read fresh quests — background save already updated nutrition quest in localStorage
               const cachedRaw = localStorage.getItem(`questfit_quests_${session!.uid}`);
               const freshQuests: Quest[] = cachedRaw ? JSON.parse(cachedRaw) : quests;
-              handleQuestUpdate(freshQuests, profile, achs);
+              // Optimistically mark nutrition quest done for immediate UI feedback
+              const optimisticQuests = freshQuests.map((q: Quest) =>
+                q.type === 'nutrition' && q.category === 'daily' && !q.completed
+                  ? { ...q, progress: 1, completed: true, completedDate: new Date().toISOString() }
+                  : q
+              );
+              handleQuestUpdate(optimisticQuests, profile, achs);
             }}
           />
         );
