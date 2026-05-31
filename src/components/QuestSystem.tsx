@@ -12,6 +12,23 @@ interface QuestProps {
   onQuestUpdate: (quests: Quest[], updatedProfile: UserProfile, unlockedAchs: any[]) => void;
 }
 
+const saveQueue: (() => Promise<void>)[] = [];
+let isSaving = false;
+
+const runNextSave = async () => {
+  if (isSaving || saveQueue.length === 0) return;
+  isSaving = true;
+  const task = saveQueue.shift()!;
+  try {
+    await task();
+  } catch (err) {
+    console.error('Error executing quest save task:', err);
+  } finally {
+    isSaving = false;
+    runNextSave();
+  }
+};
+
 export default function QuestSystem({ userProfile, quests, onQuestUpdate }: QuestProps) {
   const [waterInput, setWaterInput] = useState(250);
   const [stepsInput, setStepsInput] = useState('');
@@ -93,8 +110,8 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
       // Trigger UI callback IMMEDIATELY for responsive feeling
       onQuestUpdate(updatedQuests, finalProfile, []);
 
-      // Fire off background save operations (async, non-blocking)
-      (async () => {
+      // Fire off background save operations in a serialized queue to avoid race conditions
+      saveQueue.push(async () => {
         try {
           // 1. Save quest
           await saveQuest(userProfile.uid, updatedQuest);
@@ -143,7 +160,8 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
         } catch (backgroundErr) {
           console.error('Background quest sync failed:', backgroundErr);
         }
-      })();
+      });
+      runNextSave();
     } catch (err) {
       console.error('Failed to update quest (optimistic):', err);
     }
@@ -222,7 +240,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
                 type="button"
                 onClick={() => handleAddWater(250)}
                 disabled={loading}
-                className="py-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 hover:scale-[1.02] active:scale-[0.98]"
+                className="py-2.5 bg-zinc-900 border border-zinc-800 active:bg-zinc-800 text-zinc-300 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 active:scale-[0.97] md:hover:scale-[1.02] md:hover:bg-zinc-800"
               >
                 <Plus className="w-3.5 h-3.5 text-sky-400" /> +250ml
               </button>
@@ -230,7 +248,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
                 type="button"
                 onClick={() => handleAddWater(500)}
                 disabled={loading}
-                className="py-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 hover:scale-[1.02] active:scale-[0.98]"
+                className="py-2.5 bg-zinc-900 border border-zinc-800 active:bg-zinc-800 text-zinc-300 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 active:scale-[0.97] md:hover:scale-[1.02] md:hover:bg-zinc-800"
               >
                 <Plus className="w-3.5 h-3.5 text-sky-400" /> +500ml
               </button>
@@ -238,7 +256,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
                 type="button"
                 onClick={() => handleAddWater(-250)}
                 disabled={loading}
-                className="py-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-red-400/80 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 hover:scale-[1.02] active:scale-[0.98]"
+                className="py-2.5 bg-zinc-900 border border-zinc-800 active:bg-zinc-850 text-red-400/80 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 active:scale-[0.97] md:hover:scale-[1.02] md:hover:bg-zinc-850"
               >
                 <Minus className="w-3.5 h-3.5 text-red-400" /> -250ml
               </button>
@@ -246,7 +264,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
                 type="button"
                 onClick={() => handleAddWater(-500)}
                 disabled={loading}
-                className="py-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-red-400/80 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 hover:scale-[1.02] active:scale-[0.98]"
+                className="py-2.5 bg-zinc-900 border border-zinc-800 active:bg-zinc-850 text-red-400/80 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 active:scale-[0.97] md:hover:scale-[1.02] md:hover:bg-zinc-850"
               >
                 <Minus className="w-3.5 h-3.5 text-red-400" /> -500ml
               </button>
@@ -276,7 +294,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
                 <button
                   type="submit"
                   disabled={loading || !stepsInput}
-                  className="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition text-xs cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  className="py-2 bg-emerald-600 active:bg-emerald-500 text-white font-bold rounded-xl transition text-xs cursor-pointer active:scale-[0.97] md:hover:scale-[1.02] md:hover:bg-emerald-500"
                 >
                   Definir Passos
                 </button>
@@ -289,7 +307,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
                     }
                   }}
                   disabled={loading}
-                  className="py-2 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white font-bold rounded-xl transition text-xs cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  className="py-2 bg-zinc-950 border border-zinc-800 text-zinc-400 active:text-white font-bold rounded-xl transition text-xs cursor-pointer active:scale-[0.97] md:hover:scale-[1.02] md:hover:bg-zinc-800"
                 >
                   Zerar Passos
                 </button>
@@ -307,10 +325,10 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
               type="button"
               onClick={handleCompleteVeggie}
               disabled={loading}
-              className={`w-full py-3 border font-bold rounded-2xl transition duration-200 cursor-pointer text-xs flex items-center justify-center gap-2 ${
+              className={`w-full py-3 border font-bold rounded-2xl transition duration-200 cursor-pointer text-xs flex items-center justify-center gap-2 active:scale-[0.97] ${
                 quests.find(q => q.type === 'nutrition' && q.category === 'daily')?.completed
                   ? 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-amber-600/10 border-amber-500/20 text-amber-400 hover:bg-amber-600/20'
+                  : 'bg-amber-600/10 border-amber-500/20 text-amber-400 active:bg-amber-600/15 md:hover:bg-amber-600/20'
               }`}
             >
               <CheckCircle className="w-4 h-4" />
@@ -325,7 +343,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
             type="button"
             onClick={() => setShowWorkoutModal(true)}
             disabled={loading}
-            className="w-full py-4 bg-gradient-to-r from-violet-600 to-pink-600 hover:scale-[1.02] active:scale-98 text-white font-bold rounded-3xl transition duration-150 cursor-pointer shadow-lg shadow-violet-600/20 flex items-center justify-center gap-2"
+            className="w-full py-4 bg-gradient-to-r from-violet-600 to-pink-600 active:scale-[0.97] md:hover:scale-[1.02] text-white font-bold rounded-3xl transition duration-150 cursor-pointer shadow-lg shadow-violet-600/20 flex items-center justify-center gap-2"
           >
             <Dumbbell className="w-5 h-5" /> Registrar Treino Completo
           </button>

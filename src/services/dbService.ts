@@ -153,6 +153,8 @@ export const saveUserMemory = async (uid: string, memory: UserMemory): Promise<v
 // ----------------------------------------------------
 // 3. Quest Engine Services
 // ----------------------------------------------------
+let lastQuestsFetchTime = 0;
+
 export const getQuests = async (uid: string): Promise<Quest[]> => {
   const todayStr = getLocalDateString();
   const cached = getLocal<Quest[]>(`questfit_quests_${uid}`);
@@ -160,17 +162,21 @@ export const getQuests = async (uid: string): Promise<Quest[]> => {
   const cachedMemory = getLocal<UserMemory>(`questfit_memory_${uid}`);
   const weight = cachedMemory?.goals?.currentWeightKg || cachedMemory?.goals?.targetWeightKg || 70;
   
+  const now = Date.now();
   if (cached && cached.length > 0) {
-    // Revalidate in background
-    if (isFirebaseEnabled && db) {
-      const colRef = collection(db, 'users', uid, 'quests');
-      getDocs(colRef).then((snap) => {
-        if (!snap.empty) {
-          const quests: Quest[] = [];
-          snap.forEach(doc => quests.push(doc.data() as Quest));
-          setLocal(`questfit_quests_${uid}`, quests);
-        }
-      }).catch(() => {});
+    // Revalidate in background at most once every 30 seconds to avoid race conditions
+    if (now - lastQuestsFetchTime > 30000) {
+      lastQuestsFetchTime = now;
+      if (isFirebaseEnabled && db) {
+        const colRef = collection(db, 'users', uid, 'quests');
+        getDocs(colRef).then((snap) => {
+          if (!snap.empty) {
+            const quests: Quest[] = [];
+            snap.forEach(doc => quests.push(doc.data() as Quest));
+            setLocal(`questfit_quests_${uid}`, quests);
+          }
+        }).catch(() => {});
+      }
     }
     return checkAndRefreshDailyQuests(uid, cached, todayStr, weight);
   }
@@ -255,21 +261,27 @@ export const saveAllQuests = async (uid: string, quests: Quest[]): Promise<void>
 // ----------------------------------------------------
 // 4. Progress Logs Services (Weights, Habits tracker)
 // ----------------------------------------------------
+let lastLogsFetchTime = 0;
+
 export const getProgressLogs = async (uid: string): Promise<ProgressLog[]> => {
   const cached = getLocal<ProgressLog[]>(`questfit_progress_${uid}`) || [];
+  const now = Date.now();
 
   if (cached && cached.length > 0) {
-    // Revalidate in background
-    if (isFirebaseEnabled && db) {
-      const colRef = collection(db, 'users', uid, 'progress_logs');
-      const q = query(colRef, orderBy('date', 'asc'));
-      getDocs(q).then((snap) => {
-        if (!snap.empty) {
-          const logs: ProgressLog[] = [];
-          snap.forEach(doc => logs.push(doc.data() as ProgressLog));
-          setLocal(`questfit_progress_${uid}`, logs.sort((a, b) => a.date.localeCompare(b.date)));
-        }
-      }).catch(() => {});
+    // Revalidate in background at most once every 30 seconds to avoid race conditions
+    if (now - lastLogsFetchTime > 30000) {
+      lastLogsFetchTime = now;
+      if (isFirebaseEnabled && db) {
+        const colRef = collection(db, 'users', uid, 'progress_logs');
+        const q = query(colRef, orderBy('date', 'asc'));
+        getDocs(q).then((snap) => {
+          if (!snap.empty) {
+            const logs: ProgressLog[] = [];
+            snap.forEach(doc => logs.push(doc.data() as ProgressLog));
+            setLocal(`questfit_progress_${uid}`, logs.sort((a, b) => a.date.localeCompare(b.date)));
+          }
+        }).catch(() => {});
+      }
     }
     return cached.sort((a, b) => a.date.localeCompare(b.date));
   }
