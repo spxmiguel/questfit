@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, UserMemory, ProgressLog } from '../types';
-import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, CheckSquare, Camera, Upload, Image } from 'lucide-react';
+import { Carrot, Award, ShoppingBag, Plus, Sparkles, Scale, Heart, ShieldAlert, CheckSquare, Camera, Upload, Image, Share2, Trash2 } from 'lucide-react';
 import { awardXp } from '../services/rpgService';
 import { saveProgressLog, getProgressLogForDate, saveQuest, getQuests } from '../services/dbService';
 import { analyzeMealPhoto, MealAnalysisResult, getStoredGeminiKey } from '../services/aiService';
+import { calculateBMR, calculateTDEE } from '../utils/healthMath';
 
 interface NutritionSystemProps {
   userProfile: UserProfile;
@@ -17,6 +18,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
   const [todayLog, setTodayLog] = useState<ProgressLog | null>(null);
   const [groceryItems, setGroceryItems] = useState<{ id: string; name: string; checked: boolean }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Photo Scanner states
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -31,12 +33,11 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
   const focus = userMemory.goals.focusArea || 'health';
   const diet = userMemory.preferences.dietType || 'omnivore';
 
-  // Calculate dynamic targets
+  // Calculate dynamic targets using Mifflin-St Jeor TDEE if physical profile is set
   const calculateTargets = () => {
-    // Basic BMR estimate: 22kcal per kg
-    const bmr = weight * 22;
-    // Light activity TDEE
-    const tdee = Math.round(bmr * 1.35);
+    const hasPhysical = userMemory.physicalProfile && userMemory.physicalProfile.weightKg;
+    const bmr = hasPhysical ? calculateBMR(userMemory.physicalProfile!) : (weight * 22);
+    const tdee = hasPhysical ? calculateTDEE(userMemory.physicalProfile!) : Math.round(bmr * 1.35);
 
     let calorieTarget = tdee;
     let proteinTarget = Math.round(weight * 1.6); // 1.6g/kg default
@@ -49,16 +50,13 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       proteinTarget = Math.round(weight * 2.2); // 2.2g/kg for muscle growth
     }
 
-    return { calories: calorieTarget, protein: proteinTarget };
+    return { calories: calorieTarget, protein: proteinTarget, tdee };
   };
 
   const targets = calculateTargets();
 
   useEffect(() => {
-    // Fetch today's progress log
     getProgressLogForDate(userProfile.uid, todayStr).then(setTodayLog);
-    
-    // Set default grocery items based on diet type
     const defaultGroceries = getGroceryListForDiet(diet);
     setGroceryItems(defaultGroceries);
   }, [userProfile.uid, diet, todayStr]);
@@ -106,7 +104,6 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
         { id: '7', name: 'Creme de leite fresco / Nata', checked: false }
       );
     } else {
-      // Omnivore
       list.push(
         { id: '1', name: 'Filé de peito de frango', checked: false },
         { id: '2', name: 'Ovos caipiras frescos', checked: false },
@@ -145,12 +142,6 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       // Award XP for logging nutrition details (+25 XP)
       const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
 
-      // Check if calorie target and protein targets are met to update daily quests
-      const activeQuests = await getQuests(userProfile.uid);
-      const calorieQuest = activeQuests.find(q => q.type === 'nutrition' && q.id.includes('calorie'));
-      
-      // If there are calorie adherence check tasks, complete them.
-      // For now, let's keep it simple: just update the UI state
       setCalorieInput('');
       setProteinInput('');
       onNutritionLogged(res.profile, res.unlockedAchievements);
@@ -158,6 +149,27 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearTodayNutrition = async () => {
+    if (window.confirm('Tem certeza de que deseja zerar seu consumo de calorias e proteínas de hoje? Isso apagará seus registros para o dia atual.')) {
+      setLoading(true);
+      try {
+        const log = await getProgressLogForDate(userProfile.uid, todayStr);
+        const updatedLog: ProgressLog = {
+          ...log,
+          caloriesConsumed: 0,
+          proteinConsumedG: 0
+        };
+        await saveProgressLog(userProfile.uid, updatedLog);
+        setTodayLog(updatedLog);
+        onNutritionLogged(userProfile, []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -212,10 +224,8 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       await saveProgressLog(userProfile.uid, updatedLog);
       setTodayLog(updatedLog);
 
-      // Award XP for logging nutrition details (+25 XP)
       const res = await awardXp(userProfile.uid, userProfile, 25, 'quest');
 
-      // Clear scanner state
       setPhotoFile(null);
       setPhotoPreview(null);
       setScanResult(null);
@@ -228,7 +238,43 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
     }
   };
 
-  // Dynamic meal suggestions based on diet preferences
+  // EXPORT DIET option formatted for copy paste to clipboard
+  const handleExportDiet = () => {
+    const dietNames: Record<string, string> = {
+      omnivore: 'Onívora',
+      vegetarian: 'Vegetariana',
+      vegan: 'Vegana',
+      carnivore: 'Carnívora',
+      keto: 'Cetogênica (Keto)',
+      lowcarb: 'Low Carb'
+    };
+
+    const dietName = dietNames[diet] || diet;
+    let exportText = `📋 CARDÁPIO E METAS ALIMENTARES - QUESTFIT RPG\n`;
+    exportText += `Objetivo do Herói: ${focus === 'weightLoss' ? 'Déficit/Perda de Peso' : focus === 'muscleGain' ? 'Hipertrofia/Ganho Muscular' : 'Saúde Geral'}\n`;
+    exportText += `Dieta de Preferência: Dieta ${dietName}\n`;
+    exportText += `Gasto Calórico Estimado (TDEE): ${targets.tdee} kcal\n`;
+    exportText += `Meta Diária: ${targets.calories} kcal | ${targets.protein}g Proteína\n`;
+    exportText += `--------------------------------------------------\n\n`;
+
+    exportText += `🍳 REFEIÇÕES SUGERIDAS PARA O DIA:\n`;
+    meals.forEach(m => {
+      exportText += `* ${m.name}: ${m.desc}\n`;
+    });
+
+    exportText += `\n🛒 INGREDIENTES PARA COMPRA:\n`;
+    groceryItems.forEach(item => {
+      exportText += `[${item.checked ? 'X' : ' '}] ${item.name}\n`;
+    });
+
+    exportText += `\n--------------------------------------------------\n`;
+    exportText += `Gerado pelo QuestFit Fitness RPG. Mantenha a consistência! ⚔️🏋️‍♂️`;
+
+    navigator.clipboard.writeText(exportText);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 4000);
+  };
+
   const getMealSuggestions = () => {
     if (diet === 'vegetarian') {
       return [
@@ -259,7 +305,6 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
         { name: 'Jantar', desc: 'Carne moída refogada com bacon, cebola e pimentão, servida com salada verde regada a azeite.' }
       ];
     } else {
-      // Omnivore
       return [
         { name: 'Café da Manhã', desc: '3 ovos mexidos + 100g de mamão formosa com 1 colher de chia.' },
         { name: 'Almoço', desc: '150g de peito de frango grelhado + 120g de arroz integral + mix de salada (alface, tomate e rúcula).' },
@@ -273,8 +318,13 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
   const calPercent = todayLog ? Math.round(((todayLog.caloriesConsumed || 0) / targets.calories) * 100) : 0;
   const protPercent = todayLog ? Math.round(((todayLog.proteinConsumedG || 0) / targets.protein) * 100) : 0;
 
+  // Surplus / Deficit calculations compared to TDEE (how much body spends per day)
+  const caloriesConsumed = todayLog?.caloriesConsumed || 0;
+  const netDeficit = caloriesConsumed - targets.tdee;
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 p-4">
+      
       {/* Header */}
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-extrabold tracking-tight">Dieta & Nutrição RPG</h1>
@@ -282,6 +332,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
         {/* Left Column: Logging & Macros */}
         <div className="lg:col-span-1 space-y-6">
           
@@ -312,7 +363,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs">
                 <span className="font-bold text-zinc-500 uppercase">Proteínas Consumidas</span>
-                <span className="font-bold text-violet-400 font-semibold">
+                <span className="font-bold text-violet-400">
                   {todayLog?.proteinConsumedG || 0} / {targets.protein} g
                 </span>
               </div>
@@ -321,6 +372,27 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
                   className="h-full bg-gradient-to-r from-violet-600 to-pink-500 rounded-full transition-all duration-300"
                   style={{ width: `${Math.min(protPercent, 100)}%` }}
                 ></div>
+              </div>
+            </div>
+
+            {/* Calorie Deficit / Surplus feedback indicator */}
+            <div className="p-3.5 bg-zinc-950 border border-zinc-900 rounded-2xl flex items-center justify-between text-xs">
+              <div>
+                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide block">Balanço Calórico</span>
+                <span className="text-zinc-400">Gasto Diário (TDEE): {targets.tdee} kcal</span>
+              </div>
+              <div className="text-right">
+                {netDeficit <= 0 ? (
+                  <>
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide block">Déficit</span>
+                    <span className="font-extrabold text-emerald-400 text-sm">{netDeficit} kcal</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wide block">Superávit</span>
+                    <span className="font-extrabold text-amber-500 text-sm">+{netDeficit} kcal</span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -352,13 +424,29 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
                   />
                 </div>
               </div>
-              <button
-                type="submit"
-                disabled={loading || !calorieInput || !proteinInput}
-                className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition duration-150 cursor-pointer text-xs shadow-lg shadow-orange-600/15"
-              >
-                Logar Refeição (+25 XP)
-              </button>
+              
+              <div className="flex flex-col gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={loading || !calorieInput || !proteinInput}
+                  className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition duration-150 cursor-pointer text-xs shadow-lg shadow-orange-600/15"
+                >
+                  Logar Refeição (+25 XP)
+                </button>
+
+                {/* Subtraction option to reset today's logs */}
+                {(todayLog?.caloriesConsumed || todayLog?.proteinConsumedG) ? (
+                  <button
+                    type="button"
+                    onClick={handleClearTodayNutrition}
+                    disabled={loading}
+                    className="w-full py-2 bg-zinc-900/60 hover:bg-rose-500/15 border border-zinc-850 hover:border-rose-550/20 text-zinc-500 hover:text-rose-400 rounded-xl transition text-[10px] font-bold cursor-pointer text-center flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Limpar Registro de Hoje (Erro de Digitação)
+                  </button>
+                ) : null}
+              </div>
             </form>
           </div>
 
@@ -372,7 +460,6 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
               Tire uma foto ou envie uma imagem da sua refeição. A inteligência artificial identificará os alimentos e calculará as calorias e proteínas automaticamente.
             </p>
 
-            {/* Warning if no Gemini Key */}
             {!hasGeminiKey && (
               <div className="p-3 bg-amber-550/10 border border-amber-500/15 text-amber-400 text-[10px] rounded-2xl flex gap-2 leading-relaxed">
                 <Sparkles className="w-4 h-4 flex-shrink-0 text-amber-500 animate-pulse" />
@@ -425,9 +512,8 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
                     </div>
                   )}
 
-                  {/* Scanned result card */}
                   {scanResult && (
-                    <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-2xl space-y-3">
+                    <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-2xl space-y-3 animate-scale-up">
                       <div className="border-b border-zinc-850 pb-2">
                         <span className="text-[9px] font-bold text-violet-400 uppercase tracking-wide block mb-0.5">Alimento Identificado</span>
                         <h4 className="text-xs font-bold text-white leading-snug">{scanResult.mealName}</h4>
@@ -491,25 +577,43 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
             </div>
           </div>
 
-          {/* Guidelines warning */}
           <div className="p-4 bg-zinc-900/60 border border-zinc-800 rounded-3xl flex gap-3 text-zinc-500 text-[10px] leading-normal items-start">
             <ShieldAlert className="w-4 h-4 flex-shrink-0 text-zinc-650" />
             <span>
-              Aviso: O QuestFit fornece alvos alimentares e sugestões baseadas em objetivos gerais de fitness. Nós não prescrevemos dietas médicas nem substituímos nutricionistas.
+              Aviso: O QuestFit fornece alvos alimentares baseados em TDEE. Nós não prescrevemos dietas médicas nem substituímos nutricionistas.
             </span>
           </div>
-
         </div>
 
         {/* Center & Right Column: Meal suggestions & grocery list */}
-        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
           
           {/* Meal Suggestions Board */}
-          <div className="glass-panel p-6 rounded-[32px] space-y-4">
-            <h3 className="font-bold text-sm text-zinc-300 uppercase tracking-wider flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-yellow-400" />
-              Cardápio IA do Dia
-            </h3>
+          <div className="glass-panel p-6 rounded-[32px] space-y-4 relative">
+            
+            <div className="flex justify-between items-center pb-2 border-b border-zinc-850">
+              <h3 className="font-bold text-sm text-zinc-350 uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-yellow-400" />
+                Cardápio IA do Dia
+              </h3>
+
+              {/* Export diet sharing button */}
+              <button
+                type="button"
+                onClick={handleExportDiet}
+                className="py-1.5 px-3 bg-zinc-955 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white font-bold rounded-xl transition duration-150 cursor-pointer text-[10px] flex items-center gap-1.5"
+                title="Copiar dieta formatada para compartilhar"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                Exportar Dieta
+              </button>
+            </div>
+
+            {copySuccess && (
+              <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/15 text-emerald-400 text-[10px] rounded-xl font-bold animate-slide-down">
+                Cardápio e lista de compras copiados para a área de transferência!
+              </div>
+            )}
             
             <div className="space-y-3">
               {meals.map((meal, idx) => (
@@ -529,7 +633,7 @@ export default function NutritionSystem({ userProfile, userMemory, onNutritionLo
             </h3>
             <p className="text-xs text-zinc-400">Garanta os ingredientes básicos para a semana de acordo com o seu perfil.</p>
 
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
               {groceryItems.map(item => (
                 <button
                   key={item.id}

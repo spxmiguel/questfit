@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Quest, UserProfile, ProgressLog } from '../types';
 import { saveQuest, saveProgressLog, getProgressLogForDate } from '../services/dbService';
 import { awardXp } from '../services/rpgService';
-import { CheckCircle, Dumbbell, Compass, Flame, Droplet, Plus, Footprints, Carrot, HelpCircle, Trophy } from 'lucide-react';
+import { CheckCircle, Dumbbell, Compass, Flame, Droplet, Plus, Minus, Footprints, Carrot, HelpCircle, Trophy } from 'lucide-react';
 
 interface QuestProps {
   userProfile: UserProfile;
@@ -28,7 +28,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
       
       const updatedQuest: Quest = {
         ...quest,
-        progress: Math.min(updatedProgress, quest.target),
+        progress: Math.max(0, Math.min(updatedProgress, quest.target)),
         completed: isNowCompleted,
         completedDate: isNowCompleted ? new Date().toISOString() : undefined
       };
@@ -47,9 +47,9 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
       let updatedLog: ProgressLog = { ...log };
 
       if (quest.type === 'water') {
-        updatedLog.waterIntakeMl = updatedProgress;
+        updatedLog.waterIntakeMl = updatedQuest.progress;
       } else if (quest.type === 'steps') {
-        updatedLog.stepsCompleted = updatedProgress;
+        updatedLog.stepsCompleted = updatedQuest.progress;
       } else if (quest.type === 'workout' && quest.category === 'daily') {
         updatedLog.workoutCompleted = isNowCompleted;
       }
@@ -107,7 +107,7 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
   const handleAddWater = (amount: number) => {
     const waterQuest = quests.find(q => q.type === 'water' && q.category === 'daily');
     if (waterQuest) {
-      handleQuestCompletion(waterQuest, waterQuest.progress + amount);
+      handleQuestCompletion(waterQuest, Math.max(0, waterQuest.progress + amount));
     }
   };
 
@@ -160,64 +160,100 @@ export default function QuestSystem({ userProfile, quests, onQuestUpdate }: Ques
         <p className="text-zinc-400">Complete seus hábitos diários e registre exercícios para ganhar XP e subir de nível.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left Side: Logging panels */}
-        <div className="md:col-span-1 space-y-6">
-          {/* Quick Water Panel */}
-          <div className="glass-panel p-6 rounded-3xl space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* Left Side: Logger Panels */}
+        <div className="space-y-6">
+          {/* Water card */}
+          <div className="glass-panel p-6 rounded-[32px] space-y-4">
             <h3 className="font-bold text-sm text-zinc-400 uppercase tracking-wider flex items-center gap-2">
               <Droplet className="w-4 h-4 text-sky-400" />
-              Poção de Hidratação
+              Hidratação Diária
             </h3>
-            <p className="text-xs text-zinc-400">Beba água regularmente para manter sua saúde e energia.</p>
+            <p className="text-xs text-zinc-400">
+              Registrado hoje: <span className="font-bold text-sky-400">{(quests.find(q => q.type === 'water' && q.category === 'daily')?.progress || 0)}ml</span>
+            </p>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => handleAddWater(250)}
                 disabled={loading}
-                className="py-2.5 bg-sky-600/10 hover:bg-sky-600/20 active:scale-95 text-sky-400 border border-sky-500/20 font-bold rounded-2xl transition duration-150 cursor-pointer text-xs flex items-center justify-center gap-1"
+                className="py-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 hover:scale-[1.02] active:scale-[0.98]"
               >
-                <Plus className="w-3.5 h-3.5" /> 250ml
+                <Plus className="w-3.5 h-3.5 text-sky-400" /> +250ml
               </button>
               <button
                 type="button"
                 onClick={() => handleAddWater(500)}
                 disabled={loading}
-                className="py-2.5 bg-sky-600/10 hover:bg-sky-600/20 active:scale-95 text-sky-400 border border-sky-500/20 font-bold rounded-2xl transition duration-150 cursor-pointer text-xs flex items-center justify-center gap-1"
+                className="py-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 hover:scale-[1.02] active:scale-[0.98]"
               >
-                <Plus className="w-3.5 h-3.5" /> 500ml
+                <Plus className="w-3.5 h-3.5 text-sky-400" /> +500ml
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAddWater(-250)}
+                disabled={loading}
+                className="py-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-red-400/80 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Minus className="w-3.5 h-3.5 text-red-400" /> -250ml
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAddWater(-500)}
+                disabled={loading}
+                className="py-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-red-400/80 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Minus className="w-3.5 h-3.5 text-red-400" /> -500ml
               </button>
             </div>
           </div>
 
-          {/* Steps Logging Panel */}
-          <div className="glass-panel p-6 rounded-3xl space-y-4">
+          {/* Steps card */}
+          <div className="glass-panel p-6 rounded-[32px] space-y-4">
             <h3 className="font-bold text-sm text-zinc-400 uppercase tracking-wider flex items-center gap-2">
               <Footprints className="w-4 h-4 text-emerald-400" />
-              Registro de Passos
+              Contador de Passos
             </h3>
+            <p className="text-xs text-zinc-400">
+              Registrado hoje: <span className="font-bold text-emerald-400">{(quests.find(q => q.type === 'steps' && q.category === 'daily')?.progress || 0)} passos</span>
+            </p>
             <form onSubmit={handleUpdateSteps} className="space-y-3">
               <input
                 type="number"
-                placeholder="Ex: 6300 passos"
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-3 text-white text-sm focus:outline-none focus:ring-1 focus:ring-violet-500"
+                placeholder="Ex: 8000 passos"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-3 text-white text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 value={stepsInput}
                 onChange={(e) => setStepsInput(e.target.value)}
                 min="0"
                 disabled={loading}
               />
-              <button
-                type="submit"
-                disabled={loading || !stepsInput}
-                className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition duration-150 cursor-pointer text-xs shadow-lg shadow-emerald-600/10"
-              >
-                Salvar Passos
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="submit"
+                  disabled={loading || !stepsInput}
+                  className="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition text-xs cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  Definir Passos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const stepsQuest = quests.find(q => q.type === 'steps' && q.category === 'daily');
+                    if (stepsQuest) {
+                      handleQuestCompletion(stepsQuest, 0);
+                    }
+                  }}
+                  disabled={loading}
+                  className="py-2 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white font-bold rounded-xl transition text-xs cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  Zerar Passos
+                </button>
+              </div>
             </form>
           </div>
 
-          {/* Quick Veggies Panel */}
-          <div className="glass-panel p-6 rounded-3xl space-y-4">
+          {/* Nutrition card */}
+          <div className="glass-panel p-6 rounded-[32px] space-y-4">
             <h3 className="font-bold text-sm text-zinc-400 uppercase tracking-wider flex items-center gap-2">
               <Carrot className="w-4 h-4 text-amber-500" />
               Nutrição Saudável

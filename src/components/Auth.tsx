@@ -152,7 +152,7 @@ export default function Auth({ onSuccess }: AuthProps) {
                 </p>
               </div>
 
-              {!isFirebaseEnabled && (
+              {!isFirebaseEnabled ? (
                 <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-2xl text-left space-y-2 mt-4">
                   <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wide block">Modo Simulação (Mock)</span>
                   <p className="text-[11px] text-zinc-400 leading-normal">
@@ -164,6 +164,19 @@ export default function Auth({ onSuccess }: AuthProps) {
                   >
                     Simular Clique no E-mail
                   </a>
+                </div>
+              ) : (
+                <div className="p-4 bg-zinc-900/60 border border-zinc-800 rounded-2xl text-left space-y-2 mt-4 text-[11px] leading-relaxed text-zinc-400">
+                  <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wide block">💡 Dica de Configuração</span>
+                  <p>
+                    Se o e-mail não chegar em alguns minutos, verifique a pasta de <strong>Spam/Lixo Eletrônico</strong>.
+                  </p>
+                  <p className="mt-1">
+                    Para o Firebase enviar e-mails de acesso, o método de login por <strong>Link do E-mail (Sem Senha)</strong> deve estar ativado no Console do Firebase → Authentication → Métodos de Login, e o domínio atual deve constar na lista de domínios autorizados.
+                  </p>
+                  <p className="mt-1">
+                    Caso tenha problemas para configurar, volte e crie um herói com <strong>E-mail/Senha</strong> normal ou use o botão <strong>Convidado</strong> para testar offline instantaneamente!
+                  </p>
                 </div>
               )}
 

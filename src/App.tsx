@@ -10,10 +10,12 @@ import {
   getUserProfile, 
   getUserMemory, 
   getQuests, 
-  getAchievements 
+  getAchievements,
+  syncLocalDataToCloud
 } from './services/dbService';
 import { checkAndUpdateStreak } from './services/rpgService';
 import { UserProfile, UserMemory, Quest, Achievement } from './types';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // UI Components
 import Auth from './components/Auth';
@@ -94,25 +96,81 @@ function App() {
     const loadUserData = async () => {
       setDataLoading(true);
       setDataError(null);
-      try {
-        // Fetch raw profile passing Google / Email session info
-        let profile = await getUserProfile(session.uid, session.displayName, session.email);
-        
-        // Check and update login streak
-        profile = await checkAndUpdateStreak(session.uid, profile);
-        
-        // Fetch remaining documents
-        const memory = await getUserMemory(session.uid);
-        const activeQuests = await getQuests(session.uid);
-        const unlockedAchievements = await getAchievements(session.uid);
 
-        setUserProfile(profile);
+      // 1. Try to load from LocalStorage cache immediately to avoid loading screen freeze
+      const cachedProfile = localStorage.getItem(`questfit_profile_${session.uid}`);
+      const cachedMemory = localStorage.getItem(`questfit_memory_${session.uid}`);
+      const cachedQuests = localStorage.getItem(`questfit_quests_${session.uid}`);
+      const cachedAchievements = localStorage.getItem(`questfit_achievements_${session.uid}`);
+      
+      let hasCache = false;
+      if (cachedProfile && cachedMemory) {
+        try {
+          setUserProfile(JSON.parse(cachedProfile));
+          setUserMemory(JSON.parse(cachedMemory));
+          if (cachedQuests) setQuests(JSON.parse(cachedQuests));
+          if (cachedAchievements) setAchievements(JSON.parse(cachedAchievements));
+          hasCache = true;
+          // Turn off loading screen early so UI is responsive
+          setDataLoading(false);
+        } catch (e) {
+          console.warn('Error parsing cached data:', e);
+        }
+      }
+
+      try {
+        const previousGuestUid = localStorage.getItem('questfit_previous_guest_uid');
+        const cachedMockUser = localStorage.getItem('questfit_mock_user');
+        
+        let guestUidToSync = previousGuestUid;
+        if (!guestUidToSync && cachedMockUser) {
+          try {
+            const mockSession = JSON.parse(cachedMockUser);
+            if (mockSession && mockSession.uid) {
+              guestUidToSync = mockSession.uid;
+            }
+          } catch (e) {}
+        }
+
+        if (guestUidToSync && guestUidToSync !== session.uid && !session.uid.startsWith('mock_') && session.email !== 'convidado@questfit.com') {
+          try {
+            await syncLocalDataToCloud(session.uid, guestUidToSync);
+            localStorage.removeItem('questfit_previous_guest_uid');
+            localStorage.removeItem('questfit_mock_user');
+          } catch (e) {
+            console.error('Failed to sync guest data:', e);
+          }
+        }
+
+        // Cache the guest UID if current session is a guest session
+        if (session.email === 'convidado@questfit.com' || session.uid.startsWith('mock_')) {
+          localStorage.setItem('questfit_previous_guest_uid', session.uid);
+        }
+
+        const profile = await getUserProfile(session.uid, session.displayName, session.email);
+        const [updatedProfile, memory, activeQuests, unlockedAchievements] = await Promise.all([
+          checkAndUpdateStreak(session.uid, profile),
+          getUserMemory(session.uid),
+          getQuests(session.uid),
+          getAchievements(session.uid)
+        ]);
+
+        // Save fresh data to local cache
+        localStorage.setItem(`questfit_profile_${session.uid}`, JSON.stringify(updatedProfile));
+        localStorage.setItem(`questfit_memory_${session.uid}`, JSON.stringify(memory));
+        localStorage.setItem(`questfit_quests_${session.uid}`, JSON.stringify(activeQuests));
+        localStorage.setItem(`questfit_achievements_${session.uid}`, JSON.stringify(unlockedAchievements));
+
+        setUserProfile(updatedProfile);
         setUserMemory(memory);
         setQuests(activeQuests);
         setAchievements(unlockedAchievements);
       } catch (err: any) {
-        console.error('Error fetching user data:', err);
-        setDataError(err.message || 'Erro desconhecido ao carregar os dados de progresso no banco.');
+        console.error('Error fetching user data from server:', err);
+        // Only block with an error screen if we have zero cached data to show
+        if (!hasCache) {
+          setDataError(err.message || 'Erro de comunicação com o banco de dados.');
+        }
       } finally {
         setDataLoading(false);
       }
@@ -129,9 +187,16 @@ function App() {
     
     setUserProfile(updatedProfile);
     
+    // Update local cache
+    localStorage.setItem(`questfit_quests_${session!.uid}`, JSON.stringify(updatedQuests));
+    localStorage.setItem(`questfit_profile_${session!.uid}`, JSON.stringify(updatedProfile));
+
     if (newlyUnlockedAchs.length > 0) {
       // Sync achievements list
-      getAchievements(session!.uid).then(setAchievements);
+      getAchievements(session!.uid).then(achs => {
+        setAchievements(achs);
+        localStorage.setItem(`questfit_achievements_${session!.uid}`, JSON.stringify(achs));
+      });
     }
 
     if (levelChanged || newlyUnlockedAchs.length > 0) {
@@ -146,13 +211,18 @@ function App() {
 
   const handleMemoryUpdate = (updatedMemory: UserMemory, updatedProfile?: UserProfile, newlyUnlockedAchs?: Achievement[]) => {
     setUserMemory(updatedMemory);
+    localStorage.setItem(`questfit_memory_${session!.uid}`, JSON.stringify(updatedMemory));
 
     if (updatedProfile) {
       const levelChanged = userProfile && updatedProfile.level > userProfile.level;
       setUserProfile(updatedProfile);
+      localStorage.setItem(`questfit_profile_${session!.uid}`, JSON.stringify(updatedProfile));
 
       if (newlyUnlockedAchs && newlyUnlockedAchs.length > 0) {
-        getAchievements(session!.uid).then(setAchievements);
+        getAchievements(session!.uid).then(achs => {
+          setAchievements(achs);
+          localStorage.setItem(`questfit_achievements_${session!.uid}`, JSON.stringify(achs));
+        });
       }
 
       if (levelChanged || (newlyUnlockedAchs && newlyUnlockedAchs.length > 0)) {
@@ -168,16 +238,22 @@ function App() {
 
   const handleWeightLogged = async (updatedProfile: UserProfile, updatedMemory: UserMemory, newlyUnlockedAchs: Achievement[]) => {
     setUserMemory(updatedMemory);
+    localStorage.setItem(`questfit_memory_${session!.uid}`, JSON.stringify(updatedMemory));
     
     // Refresh quests list because water target updates dynamically with weight
     const activeQuests = await getQuests(session!.uid);
     setQuests(activeQuests);
+    localStorage.setItem(`questfit_quests_${session!.uid}`, JSON.stringify(activeQuests));
     
     const levelChanged = userProfile && updatedProfile.level > userProfile.level;
     setUserProfile(updatedProfile);
+    localStorage.setItem(`questfit_profile_${session!.uid}`, JSON.stringify(updatedProfile));
 
     if (newlyUnlockedAchs.length > 0) {
-      getAchievements(session!.uid).then(setAchievements);
+      getAchievements(session!.uid).then(achs => {
+        setAchievements(achs);
+        localStorage.setItem(`questfit_achievements_${session!.uid}`, JSON.stringify(achs));
+      });
     }
 
     if (levelChanged || newlyUnlockedAchs.length > 0) {
@@ -344,6 +420,7 @@ function App() {
             userProfile={userProfile}
             userMemory={userMemory}
             onWorkoutCompleted={(profile, achs) => handleQuestUpdate(quests, profile, achs)}
+            onMemoryUpdate={handleMemoryUpdate}
           />
         );
       case 'nutrition':
@@ -359,7 +436,9 @@ function App() {
           <AICoachChat 
             userProfile={userProfile} 
             userMemory={userMemory} 
+            quests={quests}
             onMemoryUpdate={handleMemoryUpdate} 
+            onQuestUpdate={handleQuestUpdate}
           />
         );
       case 'analytics':
@@ -378,7 +457,13 @@ function App() {
           />
         );
       case 'settings':
-        return <Settings />;
+        return (
+          <Settings 
+            userProfile={userProfile} 
+            userMemory={userMemory} 
+            onMemoryUpdate={handleMemoryUpdate} 
+          />
+        );
       default:
         return (
           <Dashboard 
@@ -400,7 +485,17 @@ function App() {
       levelUpData={levelUpData}
       onCloseLevelUp={() => setLevelUpData(null)}
     >
-      {renderTabContent()}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -15 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+        >
+          {renderTabContent()}
+        </motion.div>
+      </AnimatePresence>
     </Layout>
   );
 }

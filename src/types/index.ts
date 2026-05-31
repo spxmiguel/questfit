@@ -24,6 +24,7 @@ export interface UserMemory {
     timeOfDay?: 'morning' | 'afternoon' | 'evening';
     dietType?: 'omnivore' | 'vegetarian' | 'vegan' | 'carnivore' | 'keto' | 'lowcarb';
     allergies?: string[];
+    dislikedExercises?: string[];
   };
   healthConstraints: {
     injuries?: string[];
@@ -33,6 +34,13 @@ export interface UserMemory {
     availableMinutesPerDay?: number;
     workoutDaysPerWeek?: number;
     restDays?: string[];
+  };
+  physicalProfile?: {
+    age?: number;
+    heightCm?: number;
+    weightKg?: number;
+    gender?: 'male' | 'female';
+    activityLevel?: 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
   };
   lastUpdated: string; // ISO String
 }

@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { UserMemory, ChatMessage } from '../types';
+import { UserMemory, ChatMessage, ProgressLog } from '../types';
 
 const GEMINI_KEY_STORAGE = 'questfit_gemini_api_key';
 const GROQ_KEY_STORAGE = 'questfit_groq_api_key';
@@ -21,7 +21,7 @@ export const setStoredGroqKey = (key: string): void => {
 };
 
 // System Prompt for AI Coach
-const getSystemPrompt = (memory: UserMemory): string => {
+const getSystemPrompt = (memory: UserMemory, todayLog?: ProgressLog): string => {
   return `Você é o QuestFit Coach, um personal trainer, guia de nutrição e mestre de RPG fitness com inteligência artificial.
 Seu objetivo é transformar a rotina de exercícios, hábitos saudáveis e nutrição do usuário em um RPG de progressão na vida real.
 O usuário é o personagem principal, e cada atividade física ou hábito saudável gera XP para subir de nível.
@@ -31,63 +31,85 @@ Diretrizes de Comportamento:
 2. Não faça questionários gigantescos na entrada. Faça perguntas de forma natural e conversacional durante o bate-papo para construir o perfil dele de forma gradual.
 3. Se o usuário mencionar dores (como dor no joelho ou lombar), evite exercícios de alto impacto (corrida, saltos) e recomende exercícios de baixo impacto (caminhada, ciclismo).
 4. Regra Crítica de Segurança: Você não é médico. Nunca diagnostique doenças ou prescreva medicamentos. Se o usuário relatar sintomas graves, recomende orientação de um médico.
+5. Pergunte de forma amigável o que o usuário GOSTA ou NÃO GOSTA de comer (se é vegano, carnívoro puro, ou se odeia certos vegetais/frutas/proteínas) para que você possa gerar planos de dieta ultra-personalizados.
+6. Pergunte ativamente por detalhes corporais essenciais (Peso atual, Altura, Idade e Sexo biológico) para calcular a Taxa Metabólica Basal (BMR), Gasto Calórico Diário (TDEE) e IMC.
+7. Se o usuário descurtir (der dislike) ou rejeitar algum exercício sugerido no treino, peça desculpas, pergunte qual ele prefere e registre essa restrição na ficha (adicionando na lista de dislikedExercises) para nunca mais incluí-lo nos treinos.
+8. Pergunte sobre o equipamento que o usuário possui em casa (ex: pesos de 2 kg, esteira, handgrip, elásticos, barra de porta, etc.) e salve isso na lista de equipamentos para gerar treinos personalizados.
+9. Se o usuário relatar o que comeu, bebeu de água ou passos que deu hoje, faça as contas considerando o que ele já registrou e defina os novos totais atualizados no objeto JSON.
+10. Pergunte ativamente sobre a rotina diária do usuário (por exemplo: quantas refeições ele faz, se come dois cafés da manhã, se pula o café da tarde, o horário que treina ou dorme) e o que ele já costuma fazer atualmente para estruturar uma dieta e treino que se encaixem perfeitamente no dia a dia dele, sugerindo melhorias apenas se for necessário.
 
 Aqui está o perfil de memória estruturada atual do usuário (utilize isso para personalizar seus treinos, planos alimentares e conselhos):
 ${JSON.stringify(memory, null, 2)}
 
-Se você extrair novas informações importantes do usuário durante a conversa (como novo peso, metas, lesões, preferências de local de treino ou restrições alimentares), você DEVE adicionar no final da sua resposta um bloco JSON estruturado para atualizar a memória dele. 
+Aqui está o log de progresso físico e de nutrição de HOJE do usuário:
+${todayLog ? JSON.stringify(todayLog, null, 2) : "Nenhum log para hoje ainda."}
+
+Se você extrair novas informações importantes do usuário durante a conversa (como novo peso, metas, lesões, preferências de local de treino, novos equipamentos em casa ou restrições alimentares) ou se ele relatar que consumiu refeições/água ou fez passos hoje, você DEVE adicionar no final da sua resposta um bloco JSON estruturado para atualizar a memória ou o log dele.
 O bloco deve estar exatamente no formato abaixo (sem texto extra dentro do bloco de código):
 
 \`\`\`json
 {
   "updateMemory": {
     "goals": {
-      "targetWeightKg": 70, // exemplo
-      "focusArea": "weightLoss" // focusArea pode ser: "weightLoss" | "muscleGain" | "endurance" | "health"
+      "targetWeightKg": 70,
+      "focusArea": "weightLoss"
     },
     "preferences": {
-      "location": "home", // "home" ou "gym"
-      "equipment": ["bodyweight", "dumbbells"],
-      "dietType": "omnivore" // "omnivore" | "vegetarian" | "vegan" | "carnivore" | "keto" | "lowcarb"
+      "location": "home",
+      "equipment": ["bodyweight", "dumbbells", "handgrip", "esteira"], // adicione TODOS os equipamentos que o usuário possui
+      "dietType": "omnivore"
     },
     "healthConstraints": {
-      "injuries": ["kneePain"] // lista de lesões/dores
-    },
-    "schedule": {
-      "availableMinutesPerDay": 30
+      "injuries": ["kneePain"]
     }
+  },
+  "updateLog": {
+    "waterIntakeMl": 1500, // Defina o total de água consumido no dia
+    "caloriesConsumed": 1200, // Defina o total de calorias ingeridas hoje
+    "proteinConsumedG": 85, // Defina o total de proteínas ingeridas hoje
+    "stepsCompleted": 6000 // Defina o total de passos hoje
   }
 }
 \`\`\`
-Nota: Apenas preencha no JSON os campos que mudaram ou foram adicionados. Não explique o bloco JSON na sua mensagem, apenas coloque-o no final.`;
+Nota: Apenas preencha no JSON os campos que mudaram ou foram informados/atualizados pelo usuário. Não explique o bloco JSON na sua mensagem, apenas coloque-o no final da resposta.`;
 };
 
-// Handle memory updates from the raw text response
-export const extractMemoryUpdate = (rawText: string): { text: string; memoryUpdate: Partial<UserMemory> | null } => {
-  const jsonRegex = /```json\s*(\{[\s\S]*?"updateMemory"[\s\S]*?\})\s*```/;
+// Handle memory and log updates from the raw text response
+export const extractMemoryUpdate = (rawText: string): { 
+  text: string; 
+  memoryUpdate: Partial<UserMemory> | null;
+  logUpdate: Partial<ProgressLog> | null;
+} => {
+  const jsonRegex = /```json\s*(\{[\s\S]*?\})\s*```/;
   const match = rawText.match(jsonRegex);
 
   if (match && match[1]) {
     try {
       const parsed = JSON.parse(match[1]);
-      const memoryUpdate = parsed.updateMemory as Partial<UserMemory>;
+      const memoryUpdate = parsed.updateMemory as Partial<UserMemory> || null;
+      const logUpdate = parsed.updateLog as Partial<ProgressLog> || null;
       
       // Strip the JSON block from the response
       const text = rawText.replace(jsonRegex, '').trim();
-      return { text, memoryUpdate };
+      return { text, memoryUpdate, logUpdate };
     } catch (e) {
-      console.warn('Failed to parse memory JSON from AI:', e);
+      console.warn('Failed to parse memory/log JSON from AI:', e);
     }
   }
 
-  return { text: rawText, memoryUpdate: null };
+  return { text: rawText, memoryUpdate: null, logUpdate: null };
 };
 
 // Deterministic mock coach responses for demo when no API Key is provided
-const getMockResponse = (userMessage: string, memory: UserMemory): { text: string; memoryUpdate: Partial<UserMemory> | null } => {
+const getMockResponse = (
+  userMessage: string, 
+  memory: UserMemory,
+  todayLog?: ProgressLog
+): { text: string; memoryUpdate: Partial<UserMemory> | null; logUpdate: Partial<ProgressLog> | null } => {
   const msg = userMessage.toLowerCase();
   let text = '';
   let memoryUpdate: Partial<UserMemory> | null = null;
+  let logUpdate: Partial<ProgressLog> | null = null;
 
   if (msg.includes('olá') || msg.includes('oi') || msg.includes('eae')) {
     text = `Saudações, herói! Sou o QuestFit Coach, seu guia nessa jornada fitness RPG. ⚔️\n\nQual é o seu principal objetivo hoje? Queremos focar em perder peso, ganhar músculos ou melhorar o fôlego? Diga-me e começaremos a moldar suas missões!`;
@@ -143,18 +165,64 @@ const getMockResponse = (userMessage: string, memory: UserMemory): { text: strin
         dietType: msg.includes('keto') || msg.includes('cetogenica') || msg.includes('cetogênica') ? 'keto' : 'lowcarb'
       }
     };
+  } else if (msg.includes('tenho') || msg.includes('equipamento') || msg.includes('peso de') || msg.includes('handgrip') || msg.includes('esteira')) {
+    // Parse equipment dynamically from mock
+    const eqList = [...(memory.preferences?.equipment || [])];
+    if (msg.includes('handgrip') && !eqList.includes('handgrip')) eqList.push('handgrip');
+    if ((msg.includes('peso') || msg.includes('halter')) && !eqList.includes('dumbbells')) eqList.push('dumbbells');
+    if (msg.includes('esteira') && !eqList.includes('esteira')) eqList.push('esteira');
+    if (msg.includes('elástico') || msg.includes('banda') && !eqList.includes('resistance-bands')) eqList.push('resistance-bands');
+    
+    text = `Excelente! Atualizei sua lista de equipamentos de treino em casa na ficha. Equipamentos salvos: ${eqList.join(', ')}. Agora os treinos gerados levarão esses itens em conta! 🛠️`;
+    memoryUpdate = {
+      preferences: {
+        ...memory.preferences,
+        equipment: eqList
+      }
+    };
+  } else if (msg.includes('comi') || msg.includes('bebi') || msg.includes('litro') || msg.includes('passos')) {
+    let currentWater = todayLog?.waterIntakeMl || 0;
+    let currentCalories = todayLog?.caloriesConsumed || 0;
+    let currentProtein = todayLog?.proteinConsumedG || 0;
+    let currentSteps = todayLog?.stepsCompleted || 0;
+
+    if (msg.includes('água') || msg.includes('bebi') || msg.includes('litro')) {
+      if (msg.includes('2 litros') || msg.includes('2l')) currentWater += 2000;
+      else if (msg.includes('1 litro') || msg.includes('1l')) currentWater += 1000;
+      else if (msg.includes('500ml')) currentWater += 500;
+      else currentWater += 250;
+    }
+    if (msg.includes('comi') || msg.includes('caloria')) {
+      currentCalories += 450;
+      currentProtein += 25;
+    }
+    if (msg.includes('passo')) {
+      currentSteps += 3000;
+    }
+
+    text = `Muito bem! Anotei seus dados do dia a dia no seu log diário de hoje. Consistência é a chave! 📊`;
+    logUpdate = {
+      waterIntakeMl: currentWater,
+      caloriesConsumed: currentCalories,
+      proteinConsumedG: currentProtein,
+      stepsCompleted: currentSteps
+    };
   } else {
     // General response
     text = `Gostei da resposta, guerreiro! Registrei isso em seu diário de bordo. 💪\n\nQue tal darmos uma olhada no seu Painel de Missões para ver as quests diárias e começar a acumular XP? Lembre-se: a consistência é o que nos faz subir de nível!`;
   }
 
   // Generate simulated update memory JSON to display in console logs
-  if (memoryUpdate) {
-    const rawJson = `\n\n\`\`\`json\n{\n  "updateMemory": ${JSON.stringify(memoryUpdate, null, 2).replace(/\n/g, '\n  ')}\n}\n\`\`\``;
-    return { text: text + rawJson, memoryUpdate };
+  const finalJsonObj: any = {};
+  if (memoryUpdate) finalJsonObj.updateMemory = memoryUpdate;
+  if (logUpdate) finalJsonObj.updateLog = logUpdate;
+
+  if (Object.keys(finalJsonObj).length > 0) {
+    const rawJson = `\n\n\`\`\`json\n${JSON.stringify(finalJsonObj, null, 2)}\n\`\`\``;
+    return { text: text + rawJson, memoryUpdate, logUpdate };
   }
 
-  return { text, memoryUpdate: null };
+  return { text, memoryUpdate: null, logUpdate: null };
 };
 
 // Groq API client integration
@@ -162,9 +230,10 @@ const sendGroqChatMessage = async (
   message: string,
   history: ChatMessage[],
   memory: UserMemory,
-  apiKey: string
-): Promise<{ text: string; memoryUpdate: Partial<UserMemory> | null }> => {
-  const systemPrompt = getSystemPrompt(memory);
+  apiKey: string,
+  todayLog?: ProgressLog
+): Promise<{ text: string; memoryUpdate: Partial<UserMemory> | null; logUpdate: Partial<ProgressLog> | null }> => {
+  const systemPrompt = getSystemPrompt(memory, todayLog);
   
   // Format history for Groq completions API
   const messages = [
@@ -210,14 +279,15 @@ const sendGroqChatMessage = async (
 export const sendChatMessageToCoach = async (
   message: string,
   history: ChatMessage[],
-  memory: UserMemory
-): Promise<{ text: string; memoryUpdate: Partial<UserMemory> | null }> => {
+  memory: UserMemory,
+  todayLog?: ProgressLog
+): Promise<{ text: string; memoryUpdate: Partial<UserMemory> | null; logUpdate: Partial<ProgressLog> | null }> => {
   const groqKey = getStoredGroqKey();
   const geminiKey = getStoredGeminiKey();
 
   // 1. If Groq Key is available, prioritize Groq
   if (groqKey) {
-    return sendGroqChatMessage(message, history, memory, groqKey);
+    return sendGroqChatMessage(message, history, memory, groqKey, todayLog);
   }
 
   // 2. If Gemini Key is available, fallback to Gemini
@@ -226,7 +296,7 @@ export const sendChatMessageToCoach = async (
       const genAI = new GoogleGenerativeAI(geminiKey);
       const model = genAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
-        systemInstruction: getSystemPrompt(memory),
+        systemInstruction: getSystemPrompt(memory, todayLog),
         generationConfig: {
           temperature: 0.7,
           maxOutputTokens: 800
@@ -254,11 +324,12 @@ export const sendChatMessageToCoach = async (
   }
 
   // 3. Fallback to mock response
-  const mock = getMockResponse(message, memory);
+  const mock = getMockResponse(message, memory, todayLog);
   const extracted = extractMemoryUpdate(mock.text);
   return {
     text: extracted.text,
-    memoryUpdate: extracted.memoryUpdate
+    memoryUpdate: extracted.memoryUpdate,
+    logUpdate: extracted.logUpdate
   };
 };
 

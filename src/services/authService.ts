@@ -7,7 +7,9 @@ import {
   signInWithPopup,
   sendSignInLinkToEmail,
   isSignInWithEmailLink,
-  signInWithEmailLink
+  signInWithEmailLink,
+  signInWithRedirect,
+  getRedirectResult
 } from 'firebase/auth';
 import { auth, isFirebaseEnabled } from './firebase';
 
@@ -54,6 +56,23 @@ if (isFirebaseEnabled && auth) {
       notifyListeners(null);
     }
   });
+
+  // Handle redirect results in case Google Login fallback was triggered
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result) {
+        console.log('Successfully logged in via redirect:', result.user);
+        const session: UserSession = {
+          uid: result.user.uid,
+          email: result.user.email || '',
+          displayName: result.user.displayName || 'Guerreiro'
+        };
+        notifyListeners(session);
+      }
+    })
+    .catch((err) => {
+      console.error('Redirect sign-in error:', err);
+    });
 }
 
 export const subscribeToAuth = (callback: AuthCallback) => {
@@ -124,14 +143,24 @@ export const registerWithEmail = async (email: string, pass: string, name: strin
 export const loginWithGoogle = async (): Promise<UserSession> => {
   if (isFirebaseEnabled && auth) {
     const provider = new GoogleAuthProvider();
-    const cred = await signInWithPopup(auth, provider);
-    const session: UserSession = {
-      uid: cred.user.uid,
-      email: cred.user.email || '',
-      displayName: cred.user.displayName || 'Guerreiro do Fogo'
-    };
-    notifyListeners(session);
-    return session;
+    try {
+      const cred = await signInWithPopup(auth, provider);
+      const session: UserSession = {
+        uid: cred.user.uid,
+        email: cred.user.email || '',
+        displayName: cred.user.displayName || 'Guerreiro do Fogo'
+      };
+      notifyListeners(session);
+      return session;
+    } catch (err: any) {
+      if (err.code === 'auth/popup-blocked') {
+        console.warn('Popup blocked by browser. Retrying with redirect...');
+        await signInWithRedirect(auth, provider);
+        // Page will reload due to redirect; return a pending promise to prevent login form submission issues.
+        return new Promise(() => {});
+      }
+      throw err;
+    }
   } else {
     // Mock Google login
     const session: UserSession = {

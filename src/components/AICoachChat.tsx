@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatMessage, UserMemory, UserProfile } from '../types';
-import { getChatHistory, addChatMessage, clearChatHistory, saveUserMemory } from '../services/dbService';
+import { ChatMessage, UserMemory, UserProfile, Quest, ProgressLog } from '../types';
+import { getChatHistory, addChatMessage, clearChatHistory, saveUserMemory, getProgressLogForDate, saveProgressLog, saveQuest } from '../services/dbService';
 import { sendChatMessageToCoach } from '../services/aiService';
 import { awardXp } from '../services/rpgService';
 import { MessageSquare, Send, BrainCircuit, RefreshCw, Sparkles, User, UserCheck, ShieldAlert, Heart, Scale, Dumbbell, Calendar } from 'lucide-react';
@@ -8,10 +8,12 @@ import { MessageSquare, Send, BrainCircuit, RefreshCw, Sparkles, User, UserCheck
 interface AICoachChatProps {
   userProfile: UserProfile;
   userMemory: UserMemory;
+  quests: Quest[];
   onMemoryUpdate: (newMemory: UserMemory, updatedProfile?: UserProfile, unlockedAchs?: any[]) => void;
+  onQuestUpdate: (updatedQuests: Quest[], updatedProfile: UserProfile, unlockedAchs: any[]) => void;
 }
 
-export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }: AICoachChatProps) {
+export default function AICoachChat({ userProfile, userMemory, quests, onMemoryUpdate, onQuestUpdate }: AICoachChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -49,8 +51,12 @@ export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }:
     await addChatMessage(userProfile.uid, userMsg);
 
     try {
-      // Send chat context to Gemini / Mock Coach
-      const response = await sendChatMessageToCoach(text, messages, userMemory);
+      // 1. Fetch latest today's log to supply to the prompt
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todayLog = await getProgressLogForDate(userProfile.uid, todayStr);
+
+      // 2. Send chat context to Gemini / Mock Coach
+      const response = await sendChatMessageToCoach(text, messages, userMemory, todayLog);
 
       // Create AI ChatMessage
       const aiMsg: ChatMessage = {
@@ -63,10 +69,17 @@ export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }:
       setMessages(prev => [...prev, aiMsg]);
       await addChatMessage(userProfile.uid, aiMsg);
 
-      // Handle memory updates if extracted by Gemini
+      let finalProfile = userProfile;
+      let finalMemory = userMemory;
+      let finalQuests = [...quests];
+      let newlyUnlockedAchs: any[] = [];
+      let updateMade = false;
+      let notifTextStr = '';
+
+      // 3. Handle memory updates if extracted by Gemini
       if (response.memoryUpdate) {
         // Deep merge logic
-        const updatedMemory: UserMemory = {
+        finalMemory = {
           ...userMemory,
           goals: { ...userMemory.goals, ...response.memoryUpdate.goals },
           preferences: { ...userMemory.preferences, ...response.memoryUpdate.preferences },
@@ -75,24 +88,106 @@ export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }:
           lastUpdated: new Date().toISOString()
         };
 
-        await saveUserMemory(userProfile.uid, updatedMemory);
+        await saveUserMemory(userProfile.uid, finalMemory);
+        updateMade = true;
 
         // Notify user of profile extraction
-        let notifText = 'Ficha de personagem atualizada pelo Coach!';
+        notifTextStr = 'Ficha de personagem atualizada pelo Coach!';
         if (response.memoryUpdate.healthConstraints?.injuries) {
-          notifText = `Lesão registrada: ${response.memoryUpdate.healthConstraints.injuries.join(', ')}`;
+          notifTextStr = `Lesão registrada: ${response.memoryUpdate.healthConstraints.injuries.join(', ')}`;
         } else if (response.memoryUpdate.preferences?.location) {
-          notifText = `Preferência de treino salva: ${response.memoryUpdate.preferences.location === 'home' ? 'Em Casa' : 'Na Academia'}`;
+          notifTextStr = `Preferência de treino salva: ${response.memoryUpdate.preferences.location === 'home' ? 'Em Casa' : 'Na Academia'}`;
+        } else if (response.memoryUpdate.preferences?.equipment) {
+          notifTextStr = 'Lista de equipamentos domésticos atualizada!';
         } else if (response.memoryUpdate.goals?.focusArea) {
-          notifText = 'Foco de treinamento atualizado!';
+          notifTextStr = 'Foco de treinamento atualizado!';
+        }
+      }
+
+      // 4. Handle daily progress log updates from AI Coach
+      if (response.logUpdate) {
+        const mergedLog: ProgressLog = {
+          ...todayLog,
+          ...response.logUpdate
+        };
+
+        // Ensure values are bounded
+        if (mergedLog.waterIntakeMl !== undefined) mergedLog.waterIntakeMl = Math.max(0, mergedLog.waterIntakeMl);
+        if (mergedLog.caloriesConsumed !== undefined) mergedLog.caloriesConsumed = Math.max(0, mergedLog.caloriesConsumed);
+        if (mergedLog.proteinConsumedG !== undefined) mergedLog.proteinConsumedG = Math.max(0, mergedLog.proteinConsumedG);
+        if (mergedLog.stepsCompleted !== undefined) mergedLog.stepsCompleted = Math.max(0, mergedLog.stepsCompleted);
+
+        await saveProgressLog(userProfile.uid, mergedLog);
+        updateMade = true;
+
+        if (!notifTextStr) {
+          notifTextStr = 'Diário do dia atualizado pelo Coach!';
+          if (response.logUpdate.waterIntakeMl !== undefined && response.logUpdate.waterIntakeMl !== todayLog.waterIntakeMl) {
+            notifTextStr = `Hidratação registrada: ${response.logUpdate.waterIntakeMl} ml!`;
+          } else if (response.logUpdate.caloriesConsumed !== undefined && response.logUpdate.caloriesConsumed !== todayLog.caloriesConsumed) {
+            notifTextStr = `Nutrição diária registrada: ${response.logUpdate.caloriesConsumed} kcal!`;
+          } else if (response.logUpdate.stepsCompleted !== undefined && response.logUpdate.stepsCompleted !== todayLog.stepsCompleted) {
+            notifTextStr = `Passos salvos hoje: ${response.logUpdate.stepsCompleted}!`;
+          }
         }
 
-        setMemoryNotification(notifText);
+        // Update corresponding daily quests
+        if (response.logUpdate.waterIntakeMl !== undefined) {
+          const waterQuestIdx = finalQuests.findIndex(q => q.type === 'water' && q.category === 'daily');
+          if (waterQuestIdx !== -1) {
+            const waterQuest = finalQuests[waterQuestIdx];
+            const isNowCompleted = response.logUpdate.waterIntakeMl >= waterQuest.target;
+            const wasCompleted = waterQuest.completed;
+            const updatedQuest = {
+              ...waterQuest,
+              progress: Math.min(response.logUpdate.waterIntakeMl, waterQuest.target),
+              completed: isNowCompleted,
+              completedDate: isNowCompleted ? new Date().toISOString() : undefined
+            };
+            await saveQuest(userProfile.uid, updatedQuest);
+            finalQuests[waterQuestIdx] = updatedQuest;
+
+            if (isNowCompleted && !wasCompleted) {
+              const res = await awardXp(userProfile.uid, finalProfile, waterQuest.xpReward, 'quest');
+              finalProfile = res.profile;
+              newlyUnlockedAchs = [...newlyUnlockedAchs, ...res.unlockedAchievements];
+            }
+          }
+        }
+
+        if (response.logUpdate.stepsCompleted !== undefined) {
+          const stepsQuestIdx = finalQuests.findIndex(q => q.type === 'steps' && q.category === 'daily');
+          if (stepsQuestIdx !== -1) {
+            const stepsQuest = finalQuests[stepsQuestIdx];
+            const isNowCompleted = response.logUpdate.stepsCompleted >= stepsQuest.target;
+            const wasCompleted = stepsQuest.completed;
+            const updatedQuest = {
+              ...stepsQuest,
+              progress: Math.min(response.logUpdate.stepsCompleted, stepsQuest.target),
+              completed: isNowCompleted,
+              completedDate: isNowCompleted ? new Date().toISOString() : undefined
+            };
+            await saveQuest(userProfile.uid, updatedQuest);
+            finalQuests[stepsQuestIdx] = updatedQuest;
+
+            if (isNowCompleted && !wasCompleted) {
+              const res = await awardXp(userProfile.uid, finalProfile, stepsQuest.xpReward, 'quest');
+              finalProfile = res.profile;
+              newlyUnlockedAchs = [...newlyUnlockedAchs, ...res.unlockedAchievements];
+            }
+          }
+        }
+      }
+
+      if (updateMade) {
+        setMemoryNotification(notifTextStr);
         setTimeout(() => setMemoryNotification(null), 5000);
 
-        // Award bonus XP for sharing profile details (+25 XP)
-        const rpgRes = await awardXp(userProfile.uid, userProfile, 25, 'quest');
-        onMemoryUpdate(updatedMemory, rpgRes.profile, rpgRes.unlockedAchievements);
+        // Talk to coach awards 0 XP (as requested to prevent level exploits)
+        const rpgRes = await awardXp(userProfile.uid, finalProfile, 0, 'quest');
+        
+        onMemoryUpdate(finalMemory, rpgRes.profile, [...newlyUnlockedAchs, ...rpgRes.unlockedAchievements]);
+        onQuestUpdate(finalQuests, rpgRes.profile, [...newlyUnlockedAchs, ...rpgRes.unlockedAchievements]);
       }
     } catch (err: any) {
       const errSystemMsg: ChatMessage = {
@@ -122,7 +217,7 @@ export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }:
           <BrainCircuit className="w-5 h-5 text-violet-400" />
           <h2 className="font-bold text-sm text-zinc-300 uppercase tracking-wider">Memória do Coach</h2>
         </div>
-
+ 
         <div className="space-y-4 text-sm">
           {/* Goals */}
           <div className="space-y-2">
@@ -153,8 +248,8 @@ export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }:
             <h4 className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-1">
               <Dumbbell className="w-3.5 h-3.5 text-violet-400" /> Preferências
             </h4>
-            <div className="p-3 bg-zinc-900/60 border border-zinc-800 rounded-2xl space-y-1.5">
-              {userMemory.preferences.location || userMemory.preferences.dietType ? (
+            <div className="p-3 bg-zinc-900/60 border border-zinc-800 rounded-2xl space-y-1.5 flex flex-col gap-1">
+              {userMemory.preferences.location || userMemory.preferences.dietType || (userMemory.preferences.equipment && userMemory.preferences.equipment.length > 0) ? (
                 <>
                   {userMemory.preferences.location && (
                     <p className="text-zinc-200 font-semibold text-xs">
@@ -173,6 +268,18 @@ export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }:
                         userMemory.preferences.dietType
                       }
                     </p>
+                  )}
+                  {userMemory.preferences.equipment && userMemory.preferences.equipment.length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-zinc-500 font-bold uppercase">Equipamentos:</span>
+                      <div className="flex flex-wrap gap-1">
+                        {userMemory.preferences.equipment.map((eq, idx) => (
+                          <span key={idx} className="px-1.5 py-0.5 bg-zinc-800 text-zinc-300 text-[10px] rounded border border-zinc-700 font-medium capitalize">
+                            {eq === 'bodyweight' ? 'calistenia' : eq}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </>
               ) : (
@@ -237,7 +344,7 @@ export default function AICoachChat({ userProfile, userMemory, onMemoryUpdate }:
         {memoryNotification && (
           <div className="absolute top-[72px] inset-x-0 mx-4 p-3 bg-violet-600 text-white text-xs font-semibold rounded-2xl shadow-xl flex items-center gap-2 z-20 animate-slide-down">
             <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-            <span>{memoryNotification} <strong className="text-amber-300 font-bold">(+25 XP)</strong></span>
+            <span>{memoryNotification}</span>
           </div>
         )}
 

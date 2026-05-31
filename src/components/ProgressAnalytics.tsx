@@ -83,23 +83,110 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
     }
   };
 
+  const handleRemoveTodayWeight = async () => {
+    setLoading(true);
+    try {
+      // 1. Remove weight from today's log
+      const log = await getProgressLogForDate(userProfile.uid, todayStr);
+      const updatedLog = { ...log };
+      delete updatedLog.weight;
+      await saveProgressLog(userProfile.uid, updatedLog);
+
+      // 2. Find previous weight to restore in memory
+      const previousLogsWithWeight = logs
+        .filter(l => l.date !== todayStr && l.weight !== undefined)
+        .sort((a, b) => b.date.localeCompare(a.date)); // sorted descending
+      
+      const prevWeight = previousLogsWithWeight.length > 0 ? previousLogsWithWeight[0].weight : undefined;
+
+      // 3. Update memory
+      const updatedMemory: UserMemory = {
+        ...userMemory,
+        goals: {
+          ...userMemory.goals,
+          currentWeightKg: prevWeight
+        },
+        lastUpdated: new Date().toISOString()
+      };
+      await saveUserMemory(userProfile.uid, updatedMemory);
+
+      // 4. Update local state
+      const updatedLogs = await getProgressLogs(userProfile.uid);
+      setLogs(updatedLogs);
+
+      // 5. Notify parent (so it propagates)
+      onWeightLogged(userProfile, updatedMemory, []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Timeline Projections calculations
   const calculateTimeline = () => {
-    const current = userMemory.goals.currentWeightKg || userMemory.goals.targetWeightKg || 80;
+    const current = userMemory.goals.currentWeightKg;
     const target = userMemory.goals.targetWeightKg || 70;
     const weeklyRate = userMemory.goals.weeklyWeightLossTargetKg || 0.5;
 
-    if (current <= target) {
+    if (!current) {
+      return {
+        completedPct: 0,
+        weeksNeeded: null,
+        targetDate: 'Defina seu peso atual',
+        projections: [],
+        notLogged: true,
+        weeklyRateUsed: weeklyRate,
+        isActualRate: false
+      };
+    }
+
+    const isWeightLoss = target < current;
+    const reached = isWeightLoss ? current <= target : current >= target;
+
+    if (reached) {
       return {
         completedPct: 100,
         weeksNeeded: 0,
         targetDate: 'Atingido!',
-        projections: []
+        projections: [],
+        weeklyRateUsed: weeklyRate,
+        isActualRate: false
       };
     }
 
-    const diff = current - target;
-    const weeksNeeded = Math.ceil(diff / weeklyRate);
+    // Calculate actual weekly rate from logs if we have at least 2 logs with different dates and weights
+    let actualWeeklyRate = weeklyRate;
+    let isActualRate = false;
+    
+    const logsWithWeightSorted = logs
+      .filter(l => l.weight !== undefined)
+      .sort((a, b) => a.date.localeCompare(b.date)); // sorted ascending (oldest first)
+
+    if (logsWithWeightSorted.length >= 2) {
+      const oldestLog = logsWithWeightSorted[0];
+      const newestLog = logsWithWeightSorted[logsWithWeightSorted.length - 1];
+      
+      const oldestWeight = oldestLog.weight!;
+      const newestWeight = newestLog.weight!;
+      
+      const timeDiffMs = new Date(newestLog.date).getTime() - new Date(oldestLog.date).getTime();
+      const daysDiff = timeDiffMs / (1000 * 60 * 60 * 24);
+      
+      if (daysDiff >= 3) { // Must be at least 3 days apart to show a real rate
+        const totalWeightChange = Math.abs(oldestWeight - newestWeight);
+        const dailyRate = totalWeightChange / daysDiff;
+        const computedWeeklyRate = dailyRate * 7;
+        
+        if (computedWeeklyRate > 0.05) { // Only use if there is a noticeable change rate
+          actualWeeklyRate = Math.round(computedWeeklyRate * 100) / 100;
+          isActualRate = true;
+        }
+      }
+    }
+
+    const diff = Math.abs(current - target);
+    const weeksNeeded = Math.ceil(diff / actualWeeklyRate);
     
     // Estimate target date
     const targetDate = new Date();
@@ -107,17 +194,22 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
     const dateOptions: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long', year: 'numeric' };
     const dateFormatted = targetDate.toLocaleDateString('pt-BR', dateOptions);
 
-    // Initial weight loss reference (max 100kg delta)
-    const initialWeight = logs.length > 0 && logs[0].weight ? logs[0].weight : current + 5;
-    const totalToLose = Math.max(initialWeight - target, 1);
-    const totalLost = Math.max(initialWeight - current, 0);
-    const completedPct = Math.round((totalLost / totalToLose) * 100);
+    // Initial weight reference
+    const initialWeightLog = logs.find(l => l.weight !== undefined);
+    const initialWeight = initialWeightLog && initialWeightLog.weight ? initialWeightLog.weight : current;
+    const totalChangeNeeded = Math.abs(initialWeight - target);
+    const changeAchieved = Math.abs(initialWeight - current);
+    const completedPct = totalChangeNeeded > 0 ? Math.round((changeAchieved / totalChangeNeeded) * 100) : 0;
 
     // Generate weekly projections list
     const projections = [];
     let tempWeight = current;
     for (let i = 1; i <= Math.min(weeksNeeded, 8); i++) {
-      tempWeight = Math.max(tempWeight - weeklyRate, target);
+      if (isWeightLoss) {
+        tempWeight = Math.max(tempWeight - actualWeeklyRate, target);
+      } else {
+        tempWeight = Math.min(tempWeight + actualWeeklyRate, target);
+      }
       const projDate = new Date();
       projDate.setDate(projDate.getDate() + i * 7);
       projections.push({
@@ -131,7 +223,9 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
       completedPct: Math.min(Math.max(completedPct, 0), 100),
       weeksNeeded,
       targetDate: dateFormatted,
-      projections
+      projections,
+      weeklyRateUsed: actualWeeklyRate,
+      isActualRate
     };
   };
 
@@ -191,6 +285,23 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
                 Registrar Peso (+50 XP)
               </button>
             </form>
+            {(() => {
+              const todayLog = logs.find(l => l.date === todayStr);
+              const hasTodayWeight = todayLog && todayLog.weight !== undefined;
+              if (hasTodayWeight) {
+                return (
+                  <button
+                    type="button"
+                    onClick={handleRemoveTodayWeight}
+                    disabled={loading}
+                    className="w-full py-2.5 bg-red-600/15 border border-red-500/20 text-red-400 hover:text-white font-bold rounded-xl transition duration-150 hover:bg-red-600/25 cursor-pointer text-xs"
+                  >
+                    Remover Peso de Hoje
+                  </button>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           {/* Timeline & projections card */}
@@ -208,9 +319,19 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
                 </div>
                 <div className="text-right">
                   <span className="text-xs font-bold text-zinc-500 uppercase">Semanas Faltantes</span>
-                  <p className="text-sm font-extrabold text-pink-400 mt-0.5">{timeline.weeksNeeded} semanas</p>
+                  <p className="text-sm font-extrabold text-pink-400 mt-0.5">
+                    {timeline.weeksNeeded !== null ? `${timeline.weeksNeeded} semanas` : '--'}
+                  </p>
                 </div>
               </div>
+
+              {timeline.weeksNeeded !== null && timeline.weeksNeeded > 0 && (
+                <div className="text-[10px] text-zinc-500 text-center font-medium leading-relaxed bg-zinc-900/30 p-2 rounded-xl border border-zinc-850">
+                  Projeção a um ritmo de{' '}
+                  <strong className="text-pink-400">{timeline.weeklyRateUsed.toFixed(2)} kg/semana</strong>
+                  {timeline.isActualRate ? ' (calculado dos seus registros reais)' : ' (meta padrão)'}
+                </div>
+              )}
 
               {/* Progress Bar */}
               <div className="space-y-1">
@@ -230,7 +351,11 @@ export default function ProgressAnalytics({ userProfile, userMemory, onWeightLog
               <div className="space-y-2 pt-2 border-t border-zinc-900">
                 <span className="text-xs font-bold text-zinc-500 uppercase block">Próximos Marcos Projetados</span>
                 {timeline.projections.length === 0 ? (
-                  <p className="text-xs text-zinc-500 italic">Meta já atingida! Mantenha a consistência.</p>
+                  <p className="text-xs text-zinc-500 italic">
+                    {timeline.notLogged 
+                      ? 'Registre seu peso ao lado para calcular as projeções.'
+                      : 'Meta já atingida! Mantenha a consistência.'}
+                  </p>
                 ) : (
                   <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
                     {timeline.projections.map((proj, idx) => (
